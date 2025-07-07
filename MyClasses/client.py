@@ -93,13 +93,13 @@ class Client:
     def unpackGrid(self, row):
         d = {}
         for par_name in (row).index:
-            if par_name in ['capacity', 'weeks', 'numPatients']:  ##handle integer-parameters
+            if par_name in ['capacity', 'weeks', 'numPatients', 'N', 'W', 'varsigma']:  ##handle integer-parameters
                 d[par_name] = [int(row[par_name])]
             elif par_name in ['DISEASE_SEVERITY', 'LEARNING_RATE', 'SUBJECTIVE_INITIATIVE', 'SEVERITY_ALLOCATION']:  ##handle doubles
                 d[par_name] = [float(row[par_name])]
             else:
                 print(f"Unknown type {par_name}. FIX: put type in unpackGrid method in client.py")
-                raise Exception(f"Unknown type {par_name}. FIX: put type in unpackGrid method in client.py")
+                raise Exception(f"Unknown type {par_name}. FIX: add type in unpackGrid method in client.py")
         return (d)
 
 
