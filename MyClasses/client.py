@@ -12,6 +12,7 @@ class Client:
         self.printInfo = printInfo
         self.ComputeErrors = ComputeErrors
         self.ENGINE_PATH = ENGINE_PATH
+        self.received_params = ""
 
     def start_server(self):
         arguments = []
@@ -54,19 +55,16 @@ class Client:
                     params = self.unpackGrid(gridParameters.iloc[i])
                     params_to_bytes = bytes(json.dumps(params) + '\n', 'UTF-8')
                     s.send(params_to_bytes)
-                    received_params = s.recv(bufer_size)
-                    #print(received_params.strip())
-                    if received_params.strip() != b'Done': ##skip param verification in this case, json.loads fails
-                        if (not self.comparaParams(enviados=params, recividos=json.loads(bytes(received_params.strip())))):
+                    self.received_params = s.recv(bufer_size)
+                    if self.received_params.strip() != b'Done': ##skip param verification in this case, json.loads fails
+                        if (not self.comparaParams(enviados=params, recividos=json.loads(bytes(self.received_params.strip())))):
                             s.close()
                             return ()
-                    #s.send(b"OK_params\n")
                     s.send(fetchMessage)
                     data_size = s.recv(bufer_size)
                     s.send(b"chunk\n")
                     results = bytearray()
-                    print(received_params)
-                    #print(data_size)
+                    print(self.received_params)
                     while len(results) < int(data_size):
                         results.extend(s.recv(bufer_size).strip())
                     if len(results.strip()) == int(data_size):
@@ -93,10 +91,12 @@ class Client:
     def unpackGrid(self, row):
         d = {}
         for par_name in (row).index:
-            if par_name in ['capacity', 'weeks', 'numPatients', 'N', 'W', 'varsigma']:  ##handle integer-parameters
+            if par_name in ['capacity', 'weeks', 'numPatients', 'N', 'W', 'varsigma', 'OBS_PERIOD']:  ##handle integer-parameters
                 d[par_name] = [int(row[par_name])]
             elif par_name in ['DISEASE_SEVERITY', 'LEARNING_RATE', 'SUBJECTIVE_INITIATIVE', 'SEVERITY_ALLOCATION']:  ##handle doubles
                 d[par_name] = [float(row[par_name])]
+            elif par_name in ['PROVIDER_INIT','PATIENT_INIT']:
+                d[par_name] = [(row[par_name])]
             else:
                 print(f"Unknown type {par_name}. FIX: put type in unpackGrid method in client.py")
                 raise Exception(f"Unknown type {par_name}. FIX: add type in unpackGrid method in client.py")
@@ -105,7 +105,9 @@ class Client:
 
     def comparaParams(self, enviados, recividos):
         for key in enviados:
-            if (str(float(enviados[key][0])) != str(float(recividos[key]))):
+            if (key == "PROVIDER_INIT" or key == "PATIENT_INIT"):
+                continue
+            elif (str(float(enviados[key][0])) != str(float(recividos[key]))):
                 print("Parametros enviados no coinciden con los recibidos")
                 print("Enviado", key, enviados[key][0])
                 print("Recivido", key, recividos[key])
