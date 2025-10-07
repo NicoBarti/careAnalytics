@@ -37,29 +37,6 @@ def plotOutput(data, name, onlyMeans=False, finalplot = False):
         tag = "onlyMeans"
     Fig.savefig(f"../figures/sensitivity_1/{addDir}sensitivity_1_{name}_{timestamp}_{tag}_fromJAVA.png")
 
-def timeAdjust(data):
-    timesteps = data.columns.tolist()
-    intSteps = []
-    for timestep in timesteps:
-        intSteps.append(int(timestep))
-    theoreticalMax = np.array(intSteps)*10/52 #10/52 is the max theoretical progression rate
-    result = np.divide(data.to_numpy(),theoreticalMax)
-    return(pd.DataFrame(result, columns=timesteps))
-
-dataH = collector("../data/sensitivity_1/H")
-plotOutput(dataH, "H",finalplot=True)
-plotOutput(dataH, "H", True, finalplot=True)
-
-dataHn = collector("../data/sensitivity_1/normH")
-plotOutput(dataHn, "Normalized H")
-plotOutput(dataHn, "Normalized H", True)
-
-adjustedH = timeAdjust(dataH)
-plotOutput(adjustedH, "Time-adjusted H",finalplot=True)
-plotOutput(adjustedH, "Time-adjusted H", True,finalplot=True)
-
-adjusteddataHn = timeAdjust(dataHn)
-plotOutput(adjusteddataHn, "Time-adjusted Normalized H")
-plotOutput(adjusteddataHn, "Time-adjusted Normalized H", True)
-
+dataW = collector("/Users/nicolasbarticevic/Desktop/CareEngineAnalytics/data/OFAT/W/H")
+plotOutput(dataW, "W",onlyMeans=True)
 

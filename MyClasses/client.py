@@ -13,6 +13,7 @@ class Client:
         self.ComputeErrors = ComputeErrors
         self.ENGINE_PATH = ENGINE_PATH
         self.received_params = ""
+        self.received_configured_params = ""
 
     def start_server(self):
         arguments = []
@@ -21,7 +22,7 @@ class Client:
         arguments.append(self.ENGINE_PATH)
         arguments.append(str(self.PORT))
         subprocess.Popen(arguments)
-        delay_for_socket = 0.6
+        delay_for_socket = 0.7
         time.sleep(delay_for_socket)
         return None
 
@@ -64,7 +65,7 @@ class Client:
                     data_size = s.recv(bufer_size)
                     s.send(b"chunk\n")
                     results = bytearray()
-                    print(self.received_params)
+                    print(f'from engine {self.received_params}')
                     while len(results) < int(data_size):
                         results.extend(s.recv(bufer_size).strip())
                     if len(results.strip()) == int(data_size):
@@ -91,12 +92,18 @@ class Client:
     def unpackGrid(self, row):
         d = {}
         for par_name in (row).index:
-            if par_name in ['capacity', 'weeks', 'numPatients', 'N', 'W', 'varsigma', 'OBS_PERIOD']:  ##handle integer-parameters
+            if par_name in ['capacity', 'weeks', 'numPatients', 'N', 'W', 'varsigma', 'OBS_PERIOD', 'seed', 'totalCapacity']:  ##handle integer-parameters
                 d[par_name] = [int(row[par_name])]
-            elif par_name in ['DISEASE_SEVERITY', 'LEARNING_RATE', 'SUBJECTIVE_INITIATIVE', 'SEVERITY_ALLOCATION']:  ##handle doubles
+            elif par_name in ['DISEASE_SEVERITY', 'LEARNING_RATE', 'SUBJECTIVE_INITIATIVE', 'SEVERITY_ALLOCATION',
+                              "fixed_delta", "fixed_capN", "fixed_rho", "fixed_eta", "fixed_kappa", "fixed_capE",
+                              "fixed_psi", "fixed_lambda", "fixed_tau"]:  ##handle doubles
                 d[par_name] = [float(row[par_name])]
-            elif par_name in ['PROVIDER_INIT','PATIENT_INIT']:
+            elif par_name in ['PROVIDER_INIT','PATIENT_INIT','pathfinder', 'obsH','obsN', 'obsC', 'obsT', 'obsE', 'obsB',
+                              "obsSimpleC", "obsSimpleE", "obsSimpleB", "reproduce_line"]: ##handle boolean
                 d[par_name] = [(row[par_name])]
+            elif par_name in ['Pi']: ##handle  strings
+                d[par_name] = [(row[par_name])]
+
             else:
                 print(f"Unknown type {par_name}. FIX: put type in unpackGrid method in client.py")
                 raise Exception(f"Unknown type {par_name}. FIX: add type in unpackGrid method in client.py")
@@ -104,13 +111,29 @@ class Client:
 
 
     def comparaParams(self, enviados, recividos):
+     #   for key in recividos:
+            # if (key == "configured_params"):
+            #     self.received_configured_params = recividos[key]
         for key in enviados:
-            if (key == "PROVIDER_INIT" or key == "PATIENT_INIT"):
-                continue
-            elif (str(float(enviados[key][0])) != str(float(recividos[key]))):
+            if (key == "PROVIDER_INIT" or key == "PATIENT_INIT" or key == "pathfinder" or key == "obsH" or
+                    key == "obsN" or key == "obsC" or key == "obsT" or key == "obsE" or key == "obsB"
+            or key == "obsSimpleB" or key == "obsSimpleC" or key == "obsSimpleE" or key == "reproduce_line"):
+                if(str(enviados[key][0])) != str(recividos[key]):
+                    print("Parametros enviados no coinciden con los recibidos")
+                    print("Enviado", key, enviados[key][0])
+                    print("Recivido", key, recividos[key])
+                    raise Exception("Parametros enviados no coinciden con los recibidos")
+            elif (key == "Pi"):
+                if (enviados[key][0] != str(recividos[key])):
+                    print("Parametros enviados no coinciden con los recibidos")
+                    print("Enviado", key, enviados[key][0])
+                    print("Recivido", key, recividos[key])
+                    raise Exception("Parametros enviados no coinciden con los recibidos")
+            elif (str(float(recividos[key]))[0:15] != str(float(enviados[key][0]))[0:15]):
                 print("Parametros enviados no coinciden con los recibidos")
                 print("Enviado", key, enviados[key][0])
                 print("Recivido", key, recividos[key])
                 raise Exception("Parametros enviados no coinciden con los recibidos")
                 return (False)
+
         return (True)
