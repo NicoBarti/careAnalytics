@@ -53,7 +53,8 @@ class Client:
             for err in range(0, ComputeErrors):
                 data = {}
                 for i in range(len(gridParameters)):
-                    params = self.unpackGrid(gridParameters.iloc[i])
+                    #params = self.unpackGrid(gridParameters.iloc[i])
+                    params = self.unpack2(gridParameters.iloc[i]) #This method passess strings
                     params_to_bytes = bytes(json.dumps(params) + '\n', 'UTF-8')
                     s.send(params_to_bytes)
                     self.received_params = s.recv(bufer_size)
@@ -89,7 +90,16 @@ class Client:
             return (errors)
 
 
+    def unpack2(self, row):
+        """Convert serie to dicitonaty with values in brakets"""
+        d = {}
+        for par_name in (row).index:
+            d[par_name] = [str(row[par_name])]
+        return d
+
+
     def unpackGrid(self, row):
+        """Convert the serie"""
         d = {}
         for par_name in (row).index:
             if par_name in ['capacity', 'weeks', 'numPatients', 'N', 'W', 'varsigma', 'OBS_PERIOD', 'seed', 'totalCapacity']:  ##handle integer-parameters

@@ -1,7 +1,7 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.axes import Axes
+#from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
 from MyClasses.pathFinder import PathFinder
@@ -11,9 +11,11 @@ from scipy.spatial.distance import cosine
 from scipy.signal import convolve2d
 
 
+
 class TrajectoryDistances(PathFinder):
     def __init__(self, working_directory, allRuns_csv, ENGINE_PATH, varsigma, selectionName, minH, maxH,OBS_PERIOD,
-                 oederByWindow, orderByVariable, scaling = "simple", matrixType = "distance", color=0.6, grain = 30):
+                 oederByWindow, orderByVariable, scaling = "simple", matrixType = "distance", color=0.6, grain = 30,
+                 norms = {}, addParam = {}, start = True):
         super().__init__(working_directory=working_directory, allRuns_csv=allRuns_csv, ENGINE_PATH=ENGINE_PATH, varsigma=varsigma,
                          OBS_PERIOD = OBS_PERIOD)
         # Normalizing constants acording to "Sensitivity Analysis model 6.pdf"
@@ -33,6 +35,11 @@ class TrajectoryDistances(PathFinder):
         self.norm_fixed_capE = 10
         self.norm_fixed_psi = 1
         self.norm_totalCapacity = 5000
+        if len(addParam) > 0:
+            self.addParam(addParam)
+        if len(norms) > 0:
+            self.repopulateNorms(norms)
+
         self.selectionName = selectionName
         self.oederByWindow = oederByWindow
         self.orderByVariable = orderByVariable
@@ -43,6 +50,14 @@ class TrajectoryDistances(PathFinder):
         self.vectors = self.orderedVectors()
         self.kernelMatrixCells = None
         self.set_matrixType(matrixType)
+
+    def addParam(self, dicParams):
+        for param in dicParams:
+            self.orderedParams.append(param)
+
+    def repopulateNorms(self, norms):
+        for key, value in norms.items():
+            setattr(self, f'norm_{key}', value)
 
     def set_scaling(self, scaling):
         self.scaling = scaling
@@ -75,6 +90,7 @@ class TrajectoryDistances(PathFinder):
         """
         ##TODO rewrite the code with only one p in self.orderedParams loop, and switch statementes or whatever they are in python
         params = self.get_seedParams(seed, selectionName=self.selectionName, filterParams = False)
+        self.convertStringParams(params)
         result = np.empty(0)
         if self.scaling == 'none':
             for p in self.orderedParams:
@@ -229,6 +245,13 @@ class TrajectoryDistances(PathFinder):
             vectors.append(self.scaleVector(seed[0]))
         return vectors
 
+    def convertStringParams(self, params: dict):
+        """Make string params numeric"""
+        #For Pi:
+        if 'Pi' in params:
+            PiConvert = {'basal': 0, 'H_segmented': 1, 'patient_centred': 2}
+            params['Pi'] = PiConvert[params['Pi']]
+
     def orderedDistanceMatrix(self):
         """Create a distance matrix for all the lines in the selction in ascending oreder"""
         #vectors = self.orderedVectors()
@@ -246,7 +269,7 @@ class TrajectoryDistances(PathFinder):
         matrix_downsampled = convolved[::self.grain, ::self.grain] / (self.grain * self.grain)
         return matrix_downsampled
 
-    def plotOrderedMatrix(self) -> tuple[Figure, Axes]:
+    def plotOrderedMatrix(self):
         """Plot the distance matrix indicating the percentiles"""
         matrix = self.downSampledMatrix()
         fig, ax = plt.subplots()
@@ -262,7 +285,6 @@ class TrajectoryDistances(PathFinder):
         ax.set_ylabel('Quartiles of H at timestep 200', fontsize=12)
         self.kernelMatrixCells = matrix.shape[0]
         print(f'Matrix cells: {self.kernelMatrixCells} ')
-
         return fig, ax
 
     def percentileIndexes(self, p=[0,25,50,75,100]):

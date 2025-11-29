@@ -56,29 +56,28 @@ class Trajectory:
     def runLine(self, fromSeed = False):
         """Calls the model passing the params"""
         # #TODO pass all parameters:
-        # params = {"varsigma": self.params['varsigma'][0], "OBS_PERIOD": [self.OBS_PERIOD],
-        #           "reproduce_line": ["t"],
-        #           "fixed_kappa": self.params['fixed_kappa'][0],
-        #           "fixed_delta": self.params['fixed_delta'][0],
-        #           "N": self.params['N'][0],
-        #           "fixed_lambda": self.params['fixed_lambda'][0],
-        #           "fixed_tau": self.params['fixed_tau'][0],
-        #           "fixed_eta": self.params['fixed_eta'][0],
-        #           "W": self.params['W'][0],
-        #           "fixed_capE": self.params['fixed_capE'][0],
-        #           "fixed_capN": self.params['fixed_capN'][0],
-        #           "fixed_psi": self.params['fixed_psi'][0],
-        #           "fixed_rho": self.params['fixed_rho'][0],
-        #           "totalCapacity": self.params['totalCapacity'][0],
-        #           "Pi": self.params['Pi'][0],
-        #           #"pathfinder": ['t']
-        #           }
-        # for stateVariable in self.stateVariables:
-        #     params[f"obs{stateVariable}"] = "t"
+        pms = {"varsigma": self.params['varsigma'], "OBS_PERIOD": self.OBS_PERIOD,
+                  "reproduce_line": ["true"],
+                  "fixed_kappa": self.params['fixed_kappa'],
+                  "fixed_delta": self.params['fixed_delta'],
+                  "N": self.params['N'],
+                  "fixed_lambda": self.params['fixed_lambda'],
+                  "fixed_tau": self.params['fixed_tau'],
+                  "fixed_eta": self.params['fixed_eta'],
+                  "W": self.params['W'],
+                  "fixed_capE": self.params['fixed_capE'],
+                  "fixed_capN": self.params['fixed_capN'],
+                  "fixed_psi": self.params['fixed_psi'],
+                  "fixed_rho": self.params['fixed_rho'],
+                  "totalCapacity": self.params['totalCapacity'],
+                  "Pi": self.params['policy']
+                  }
+        for stateVariable in self.stateVariables:
+             pms[f"obs{stateVariable}"] = "true"
         # if fromSeed:
         #     params["seed"] = self.seed
-        # run_data = self.c.socket_with_model_paramGrid_2(gridParameters=pd.DataFrame(params))
-        # self.c.start_server()
+        run_data = self.c.socket_with_model_paramGrid_2(gridParameters=pd.DataFrame(pms))
+        self.c.start_server()
         return run_data
 
     def printableParams(self, paramsPerLine = 4):

@@ -3,6 +3,9 @@ import time
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import os
+
+from numpy import dtype
+
 from MyClasses.client import Client
 import numpy as np
 import json
@@ -44,7 +47,7 @@ class LineGroup:
         if self.selection is not None:
             print('Group selection already created')
             return None
-        self.selection = csv.loc[(csv[stateVariable] >= min) & (csv[stateVariable] <= max)]
+        self.selection = csv.loc[(pd.Series(csv[stateVariable], dtype=float) >= min) & (pd.Series(csv[stateVariable], dtype=float) <= max)]
         self.selection.set_index(self.selection['seeds'], drop = False, append = False, inplace = True)
         self.original = self.selection.copy()
         print(f'{self.selection.shape[0]} runs with {stateVariable} between {min} and {max}')

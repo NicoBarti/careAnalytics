@@ -23,13 +23,16 @@ class LinePlotter:
     def setColorMAP(self, value):
         self.cmap = mpl.colormaps[value]
 
-    def printableParams(self, lineParams, paramsPerLine = 4, policy = True):
+    def printableParams(self, lineParams, paramsPerLine = 4, policy = True, selectedParams = None):
         """Print params in readeable lines """
+
+        if selectedParams is None:
+            selectedParams = self.selectedParams
 
         counter = 0
         internalDic = {}
         paramList = ""
-        thisParams = self.selectedParams if policy else [x for x in self.selectedParams if x != "Pi"]
+        thisParams = selectedParams if policy else [x for x in selectedParams if x != "Pi"]
         for key in thisParams:
             internalDic[key] = lineParams[key].round(2) if type(lineParams[key]) != str else lineParams[key]
             counter += 1
@@ -52,7 +55,7 @@ class LinePlotter:
         axe.set_ylabel(stateVariable)
         return axe
 
-    def hist(self, data, stateVar, axe, window):
+    def hist(self, data, stateVar, axe, window, x_texsize = 20):
         """Plot histogram. If it T, remove zeros"""
 
         #Extract window
@@ -66,11 +69,11 @@ class LinePlotter:
             dataToPlot = dataToPlot[dataToPlot != 0]
 
         axe.hist(dataToPlot)
-        axe.set_xlabel(stateVar)
+        axe.set_xlabel(stateVar, size=x_texsize)
         axe.set_ylabel("Count")
         return axe
 
-    def same_limits_y(self, axes, fixMin = None, fixMax = None):
+    def same_limits_y(self, axes , fixMin = None, fixMax = None):
         min, max = [], []
         for axe in axes:
             max.append(axe.get_ylim()[1])
@@ -91,6 +94,8 @@ class LinePlotter:
         for axe in axes:
             axe.set_xlim(left = newMINLim, right = newMAXLim)
         return axes
+
+    #def individual_trayectories(self, axe, stateVar):
 
 
 

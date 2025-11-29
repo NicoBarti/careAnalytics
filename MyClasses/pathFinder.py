@@ -88,7 +88,7 @@ class PathFinder:
                         simdata[seed] =  {stateVariable: pd.read_csv(entry.path)}
         return (simdata)
 
-    def retrieve_run_model(self, stateVariables, selectionName, seed = False):
+    def retrieve_run_model(self, stateVariables, selectionName, seed = False, tweak = {}):
         """Run the model for the seeds in selectionName, observing stateVariables with OBS_PERIOD
         INPUT: stateVariables is a list of str with the var names, OBS_PERIOD is an int, selectionName a str
         OUTPUT: dictionary of seed: {stateVariables: results}"""
@@ -113,6 +113,9 @@ class PathFinder:
                 params["OBS_PERIOD"] = [self.OBS_PERIOD]
                 params["reproduce_line"]= ["true"]
 
+                for key, value in tweak.items():
+                    params[key] = value
+
                 if 'H' in params:
                     params.pop('H')
 
@@ -128,7 +131,8 @@ class PathFinder:
                              "windows": win,
                              "params": pd.DataFrame(receivedParams, index=[0])}
             self.c.start_server()
-        self.save_run_to_disk(simdata = simdata, selectionName=selectionName)
+        if len(tweak)==0:
+            self.save_run_to_disk(simdata = simdata, selectionName=selectionName)
         return (simdata)
 
     def save_run_to_disk(self, simdata,selectionName):
@@ -139,23 +143,27 @@ class PathFinder:
             for stateVariable in simdata[seed]:
                 simdata[seed][stateVariable].to_csv(f"{self.working_directory}/{selectionName}/{stateVariable}_{seed}_{self.OBS_PERIOD}", index=False)
 
-    def produce(self, stateVariables, selectionName, seeds = False):
+    def produce(self, stateVariables, selectionName, seeds = [], tweak = {}):
         """For each necesary run results, retrieve them from disk, or run them from engine if not available"""
         #Todo when reading from disk, data frames contain the 'Unnamed: 0' column/(index?). When retreiving from simulation they don't.
-        if not seeds:
+        if len(seeds) ==0:
             seeds = self.get_seeds(selectionName)
         results = {}
         for seed in seeds:
             for stateVariable in stateVariables:
-                existingRun = False
-                for entry in os.scandir(f"{self.working_directory}/{selectionName}"):
-                    if entry.is_file() and stateVariable in entry.name.split("_") and str(seed) in entry.name.split("_") and str(self.OBS_PERIOD) in entry.name.split("_"):
-                        existingRun = True
-                        break
-                if existingRun:
-                    simdata = self.retrieve_from_disk(stateVariables = [stateVariable], selectionName=selectionName, seed=seed)
+                if len(tweak) > 0:
+                    simdata = self.retrieve_run_model(stateVariables=[stateVariable], selectionName=selectionName,
+                                                      seed=seed, tweak = tweak)
                 else:
-                   simdata = self.retrieve_run_model(stateVariables = [stateVariable],  selectionName=selectionName, seed = seed)
+                    existingRun = False
+                    for entry in os.scandir(f"{self.working_directory}/{selectionName}"):
+                        if entry.is_file() and stateVariable in entry.name.split("_") and str(seed) in entry.name.split("_") and str(self.OBS_PERIOD) in entry.name.split("_"):
+                            existingRun = True
+                            break
+                    if existingRun:
+                        simdata = self.retrieve_from_disk(stateVariables = [stateVariable], selectionName=selectionName, seed=seed)
+                    else:
+                       simdata = self.retrieve_run_model(stateVariables = [stateVariable],  selectionName=selectionName, seed = seed)
 
                 if seed in results:
                     results[seed].update(simdata[seed])
@@ -195,6 +203,19 @@ class PathFinder:
         for i in range(len(q)):
             selectedSeeds[q[i]] = [h_200[qs[i]], qs[i]]
         return selectedSeeds
+
+    def find_parameters_above_percentile(self, stateVar, selection, percentile: float = 0.8 ) -> list:
+        """Find the parametes in a selection that are above the given percentile.
+        To be used to find the params with best fitness"""
+
+        qs = np.percentile(self.selections[selection][stateVar], q=percentile, axis=0, method="nearest")
+        return self.selections[selection].loc[self.selections[selection][stateVar] > qs]
+
+    def max_parameter(self, param, selection, number_of_max = 1):
+        """Find the parametrization with max value"""
+        #return self.selections[selection].loc[self.selections[selection][param] ==
+        #                                      self.selections[selection][param].max()]['seeds'].iloc[0]
+        return self.selections[selection].sort_values(by="H", ascending=False)['seeds'].iloc[0:number_of_max]
 
     def plot_some_lines(self, selection, window, q = None, stateVar="H", lines = None, color = "selection"):
         """Plot the lines for the percentiles 0, 0.25, 0.5, 0.75, 1 at time window window (or q lines if given)
