@@ -72,6 +72,87 @@ dd_w1 = dist_inequal.produce(stateVariables='H', selectionName='inequal', seeds=
 decilesFrame = build_deciles_frame(dd_w1['H'])
 purityDeciles = decilesFrame.apply(purity, axis = 1)
 
+##Try observe disease and expNoise:
+
+Disease = dist_inequal.produce(stateVariables=['Disease'], selectionName='inequal', seeds=seedWithMaxFitnes)[
+        int(seedWithMaxFitnes.iloc[0])]
+ExpNoise = dist_inequal.produce(stateVariables=['ExpNoise'], selectionName='inequal', seeds=seedWithMaxFitnes)[
+        int(seedWithMaxFitnes.iloc[0])]
+
+
+##Instantaneous T:
+# LowT, UpT = dd['T'].loc[dd['H']['100'] <= lowerDecile], dd['T'].loc[dd['H']['100'] >= upperDecile]
+# LowC, UpC = dd['SimpleC'].loc[dd['H']['100'] <= lowerDecile], dd['SimpleC'].loc[dd['H']['100'] >= upperDecile]
+# LowCondition = LowC == 0
+# for index, row in LowT.mask(LowCondition).iterrows():
+#     ax[0][1].plot([x for x in range(101)], row, color='blue', alpha=0.1)
+# ax[0][1].plot([x for x in range(101)], LowT.mask(LowCondition).mean(0), color='blue', alpha=0.3, linewidth = 3)
+##Instantaneous Disease:
+#ax[2][2].plot([x for x in range(100)], LowDisease.iloc[:,0:100].mean(0), color='purple', alpha=0.3, linewidth = 3)
+
+#Comparison of trajectories for extreme deciles for equity and inequity
+##TODO: if this code result useul, it would be better to integrate with above
+p = LinePlotter()
+tweakVar = 'fixed_lambda, W'
+# tweakValues = [20,20]
+#tweakValues = [{'fixed_lambda': 20, 'W':1}, {'fixed_lambda': 20, 'W':20}]
+tweakValues = [{ 'W':1}, { 'W':20}]
+
+stateVariables=         ['H', 'N', 'SimpleE', 'SimpleB', 'SimpleC','T']
+#stateVariables=         ['H', 'N', 'SimpleE', 'SimpleB', 'SimpleC','T', 'Disease', 'ExpNoise']
+
+plotStateVariables =    ['H', 'N', 'SimpleE', 'SimpleB', 'SimpleC','cum_T']
+fig, ax = plt.subplots(ncols=len(stateVariables), nrows=len(tweakValues)+2, figsize=(5*len(stateVariables), 5*(len(tweakValues)+2)), constrained_layout=True, facecolor='ghostwhite',)
+for value in range(0,len(tweakValues)):
+    dd = dist_inequal.produce(stateVariables=stateVariables, selectionName='inequal', seeds=seedWithMaxFitnes, tweak = tweakValues[value])[int(seedWithMaxFitnes.iloc[0])]
+                              #tweak={f'{tweakVar}': tweakValues[value]})[int(seedWithMaxFitnes.iloc[0])]
+    if value ==0:
+        print(0)
+    dd = cummulativeStateVariable(data=dd, stateVar='T')
+    lowerDecile, upperDecile = np.quantile(np.array(dd['H']['100']), q=[0.1,0.9])
+    for plotStateVariable in range(0,len(plotStateVariables)):
+        if plotStateVariables ==3:
+            print(0)
+        ddLow, ddUp = dd[plotStateVariables[plotStateVariable]].loc[dd['H']['100']<= lowerDecile], dd[plotStateVariables[plotStateVariable]].loc[dd['H']['100']>= upperDecile]
+        for index, row in ddLow.iterrows():
+            ax[value*2][plotStateVariable].plot([x for x in range(101)], row, color = 'blue', alpha = 0.02)
+            ax[value*2][plotStateVariable].set_xlabel(stateVariables[plotStateVariable])
+        ax[value*2][plotStateVariable].plot([x for x in range(101)], ddLow.mean(), color = 'blue', alpha = 0.3,  linewidth = 3)
+        for index, row in ddUp.iterrows():
+            ax[value*2+1][plotStateVariable].plot([x for x in range(101)], row, color = 'blue', alpha = 0.02)
+            ax[value*2+1][plotStateVariable].set_xlabel(plotStateVariables[plotStateVariable])
+        ax[value*2+1][plotStateVariable].plot([x for x in range(101)], ddUp.mean(), color='blue', alpha=0.3, linewidth=3)
+    #for i in range(0, len(plotStateVariables)):
+    ax[0,2].set_title(f'Lower decile {tweakVar} = {tweakValues[0]} ', size=20)
+    ax[1,2].set_title(f'Upper decile {tweakVar} = {tweakValues[0]} ', size=20)
+    ax[2,2].set_title(f'Lower decile {tweakVar} = {tweakValues[1]}', size=20)
+    ax[3,2].set_title(f'Upper decile {tweakVar} = {tweakValues[1]}', size=20)
+fig.show()
+
+##Evolution of distributions of C for best and wors H with W=1
+# p = LinePlotter()
+# W = [1]
+# for w in range(0,len(W)):
+#     time = [0,10,20,30,40,50,60,70,80,90,100]
+#     #time = [0,20,40,60,80,100]
+#     stateVariables=['SimpleC']
+#     fig, ax = plt.subplots(ncols=len(time), nrows=len(stateVariables), figsize=(5*len(time),30), constrained_layout=True, facecolor='ghostwhite',)
+#     dd = dist_inequal.produce(stateVariables=stateVariables, selectionName='inequal', seeds=seedWithMaxFitnes,
+#                               tweak={'W': W[w]})[int(seedWithMaxFitnes.iloc[0])]
+#     #TODO separate here upper and lower deciles
+#     for t in range(0,len(time)):
+#         for var in range(0,len(stateVariables)):
+#              p.hist(data = dd, stateVar=stateVariables[var], window=time[t], axe = ax[var][t],
+#                     x_texsize = 20)
+#     for row in range(0,len(stateVariables)):
+#         p.same_limits_y(ax[row])
+#         p.same_limits_x(ax[row])
+#     for t in range(0,len(time)):
+#         ax[0][t].set_title(f"Timestep {time[t]}", size = 30)
+#
+#     fig.suptitle(f"W = {W[w]}", size=40)
+#     fig.show()
+
 #Decile-trajectories for the lower decile
 fig, ax = plt.subplots()
 for index, row in decilesFrame.iterrows():
@@ -171,38 +252,7 @@ for w in range(0,len(W)):
     fig.suptitle(f"W = {W[w]}", size=40)
     fig.show()
 
-#Comparison of trajectories for extreme deciles for equity and inequity
-##TODO: if this code result useul, it would be better to integrate with above
-p = LinePlotter()
-tweakVar = 'fixed_lambda, W'
-# tweakValues = [20,20]
-#tweakValues = [{'fixed_lambda': 20, 'W':1}, {'fixed_lambda': 20, 'W':20}]
-tweakValues = [{ 'W':1}, {'fixed_lambda': 20, 'W':20}]
 
-stateVariables=         ['H', 'N', 'SimpleE', 'SimpleB', 'SimpleC','T']
-plotStateVariables =    ['H', 'N', 'SimpleE', 'SimpleB', 'SimpleC','cum_T']
-fig, ax = plt.subplots(ncols=len(stateVariables), nrows=len(tweakValues)+2, figsize=(5*len(stateVariables), 5*(len(tweakValues)+2)), constrained_layout=True, facecolor='ghostwhite',)
-for value in range(0,len(tweakValues)):
-    dd = dist_inequal.produce(stateVariables=stateVariables, selectionName='inequal', seeds=seedWithMaxFitnes, tweak = tweakValues[value])[int(seedWithMaxFitnes.iloc[0])]
-                              #tweak={f'{tweakVar}': tweakValues[value]})[int(seedWithMaxFitnes.iloc[0])]
-    dd = cummulativeStateVariable(data=dd, stateVar='T')
-    lowerDecile, upperDecile = np.quantile(np.array(dd['H']['100']), q=[0.1,0.9])
-    for plotStateVariable in range(0,len(plotStateVariables)):
-        ddLow, ddUp = dd[plotStateVariables[plotStateVariable]].loc[dd['H']['100']<= lowerDecile], dd[plotStateVariables[plotStateVariable]].loc[dd['H']['100']>= upperDecile]
-        for index, row in ddLow.iterrows():
-            ax[value*2][plotStateVariable].plot([x for x in range(101)], row, color = 'blue', alpha = 0.02)
-            ax[value*2][plotStateVariable].set_xlabel(stateVariables[plotStateVariable])
-        ax[value*2][plotStateVariable].plot([x for x in range(101)], ddLow.mean(), color = 'blue', alpha = 0.3,  linewidth = 3)
-        for index, row in ddUp.iterrows():
-            ax[value*2+1][plotStateVariable].plot([x for x in range(101)], row, color = 'blue', alpha = 0.02)
-            ax[value*2+1][plotStateVariable].set_xlabel(plotStateVariables[plotStateVariable])
-        ax[value*2+1][plotStateVariable].plot([x for x in range(101)], ddUp.mean(), color='blue', alpha=0.3, linewidth=3)
-    #for i in range(0, len(plotStateVariables)):
-    ax[0,2].set_title(f'Lower decile {tweakVar} = {tweakValues[0]} ', size=20)
-    ax[1,2].set_title(f'Upper decile {tweakVar} = {tweakValues[0]} ', size=20)
-    ax[2,2].set_title(f'Lower decile {tweakVar} = {tweakValues[1]}', size=20)
-    ax[3,2].set_title(f'Upper decile {tweakVar} = {tweakValues[1]}', size=20)
-fig.show()
 
 # ## Show that learning is key for W1 / W20 differences
 # p = LinePlotter()

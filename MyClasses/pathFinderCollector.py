@@ -100,6 +100,10 @@ class PathFinderCollector:
                 paramArray = lines[n+1].split('|') #the next line contains param values
                 for param in paramArray:
                     parName = param.strip().replace(":", "").split(" ")[0]
+                    if parName == "fixed_delta" and str(param.strip().split(" ")[1]) == "random":
+                        value = 0
+                        paramDic[parName].append(value)
+                        continue
                     if(parName in ["W", "N", "totalCapacity", "policy"]):
                         if(parName == "policy"):
                             parName = "Pi"

@@ -49,7 +49,12 @@ class Client:
         for i in range(0, ComputeErrors):
             errors[i] = {}
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            #try:
             s.connect((str(self.HOST), int(self.PORT)))
+            #except ConnectionRefusedError as e:
+            #    print(f"(Python Client) Parece que Java refused: {e}")
+            #    print(f"Tratando de nuevo")
+            #    time.sleep(12)
             for err in range(0, ComputeErrors):
                 data = {}
                 for i in range(len(gridParameters)):
@@ -109,7 +114,8 @@ class Client:
                               "fixed_psi", "fixed_lambda", "fixed_tau"]:  ##handle doubles
                 d[par_name] = [float(row[par_name])]
             elif par_name in ['PROVIDER_INIT','PATIENT_INIT','pathfinder', 'obsH','obsN', 'obsC', 'obsT', 'obsE', 'obsB',
-                              "obsSimpleC", "obsSimpleE", "obsSimpleB", "reproduce_line"]: ##handle boolean
+                              "obsSimpleC", "obsSimpleE", "obsSimpleB", "reproduce_line", "obsDisease", "obsExpNoise",
+                              "obsInstExp", "obsDelta"]: ##handle boolean
                 d[par_name] = [(row[par_name])]
             elif par_name in ['Pi']: ##handle  strings
                 d[par_name] = [(row[par_name])]
@@ -121,18 +127,18 @@ class Client:
 
 
     def comparaParams(self, enviados, recividos):
-     #   for key in recividos:
-            # if (key == "configured_params"):
-            #     self.received_configured_params = recividos[key]
         for key in enviados:
             if (key == "PROVIDER_INIT" or key == "PATIENT_INIT" or key == "pathfinder" or key == "obsH" or
                     key == "obsN" or key == "obsC" or key == "obsT" or key == "obsE" or key == "obsB"
-            or key == "obsSimpleB" or key == "obsSimpleC" or key == "obsSimpleE" or key == "reproduce_line"):
-                if(str(enviados[key][0])) != str(recividos[key]):
+            or key == "obsSimpleB" or key == "obsSimpleC" or key == "obsSimpleE" or key == "reproduce_line"
+            or key == "obsDisease" or key == "obsExpNoise" or key == 'obsInstExp' or key == 'obsDelta'):
+                if(str(enviados[key][0])).lower() != str(recividos[key]).lower():
                     print("Parametros enviados no coinciden con los recibidos")
                     print("Enviado", key, enviados[key][0])
                     print("Recivido", key, recividos[key])
                     raise Exception("Parametros enviados no coinciden con los recibidos")
+            elif(key == "initial_h"): #Don't check initialization
+                None
             elif (key == "Pi"):
                 if (enviados[key][0] != str(recividos[key])):
                     print("Parametros enviados no coinciden con los recibidos")

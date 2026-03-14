@@ -33,6 +33,7 @@ class LinePlotter:
         internalDic = {}
         paramList = ""
         thisParams = selectedParams if policy else [x for x in selectedParams if x != "Pi"]
+        thisParams = [x for x in selectedParams if x in lineParams] #Avoids failing to params not included
         for key in thisParams:
             internalDic[key] = lineParams[key].round(2) if type(lineParams[key]) != str else lineParams[key]
             counter += 1

@@ -39,7 +39,7 @@ title = "Design - uni objective"
 objectives = ['equal', 'inequal', 'effective']
 
 #create the distance objects
-for objective in objectives:
+
 for objective in objectives:
     exec(f'dist_{objective} = generateDistancesGroup(file= \"{objective}\", java_output=\"{java_output}\", working_directory=\"{working_directory}\")')
 
@@ -56,7 +56,7 @@ p = LinePlotter()
 fig, axes = plt.subplots(nrows=1, ncols=4, constrained_layout=True, facecolor='ghostwhite', figsize=(20, 7))
 par= "H"
 for objective in range(0,len(objectives)):
-    maxSeed = eval(f'dist_{objectives[objective]}.max_parameter(selection=\"{objectives[objective]}\", param=\"{par}\")')
+    maxSeed = eval(f'dist_{objectives[objective]}.max_parameter(selection=\"{objectives[objective]}\", param=\"{par}\")').to_list()[0]
     dd = eval(f'dist_{objectives[objective]}.produce(stateVariables=\"{par}\", selectionName=\"{objectives[objective]}\", seeds=[{maxSeed}])')
     p.hist(data = dd[int(maxSeed)], stateVar=par, window=1, axe = axes[objective],x_texsize = 15)
     axes[objective].set_title(objectives[objective], size=20)

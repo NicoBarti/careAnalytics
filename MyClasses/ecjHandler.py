@@ -50,4 +50,22 @@ class EcjHandler:
         distances.set_grain(data.shape[0])
         return distances
 
+    def changeParam(self, paramName, value):
+        """Modify the .csv"""
+        data = pd.read_csv(self.java_output + f'{self.file}_allRuns.csv')
+        for i in range(len(data)):
+            data.loc[i, paramName] = value
+        data.to_csv(self.java_output + f'{self.file}_allRuns.csv', index=False)
+
+    def addParams(self, gridParams):
+        """Add the given params to the .csv"""
+        data = pd.read_csv(self.java_output + f'{self.file}_allRuns.csv')
+        for key, value in gridParams.items():
+            col = [value] * len(data)
+            data.insert(loc = len(data.columns), column= key, value = pd.Series(col))
+
+        data.to_csv(self.java_output + f'{self.file}_allRuns.csv', index=False)
+
+
+
 

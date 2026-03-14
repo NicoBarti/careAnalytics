@@ -8,9 +8,10 @@ ENGINE_PATH = '/Users/nicolasbarticevic/Desktop/CareEngineAnalytics/engine/PathF
 ## Will build the box-params + hist profiles for every .stat on the sub_path directory
 base_java_output = f'/Users/nicolasbarticevic/Desktop/ecj_run/'
 base_working_directory = f'/Users/nicolasbarticevic/Desktop/ecj_run/simulationOutputs/otucomesMatrix/'
-#sub_path = 'agents/mono/'
-sub_path = 'design/norm_kurtExp_inequality/'
-#
+#sub_path = 'agents/bi_objective/'
+#sub_path = 'design/norm_kurtExp_inequality/'
+sub_path = 'agentsANDdesign/bi/'
+
 
 ## Parameters to print on top of each hist:
 printParams =  ['Pi', 'varsigma', 'N', 'fixed_tau','totalCapacity', 'W']

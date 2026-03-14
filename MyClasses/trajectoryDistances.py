@@ -249,7 +249,7 @@ class TrajectoryDistances(PathFinder):
         """Make string params numeric"""
         #For Pi:
         if 'Pi' in params:
-            PiConvert = {'basal': 0, 'H_segmented': 1, 'patient_centred': 2}
+            PiConvert = {'basal': 0, 'H_segmented': 1, 'patient_centred': 2, 'risk': 3, 'need': 4, 'risk_need':5}
             params['Pi'] = PiConvert[params['Pi']]
 
     def orderedDistanceMatrix(self):

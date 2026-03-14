@@ -1,3 +1,5 @@
+from typing import Any
+
 import pandas as pd
 import time
 import matplotlib as mpl
@@ -18,13 +20,15 @@ class PathFinder:
 ## each directory inside the working directory contains one selection, and is named by the name of the selection
 ## each simulation file has stateVariable_seed_OBSPERIOD
 
-    def __init__(self, working_directory, allRuns_csv, ENGINE_PATH,varsigma,OBS_PERIOD, filterW_capacity = False, oldstyle = False):
+    def __init__(self, working_directory, allRuns_csv, ENGINE_PATH,varsigma,OBS_PERIOD, filterW_capacity = False,
+                 oldstyle = False, indexVar = 'H'):
         ##allRuns_csv is a direct output from Java with the end values of H (culmn data) and the seed for each run.
         self.working_directory = working_directory
         self.varsigma = varsigma
+        self.indexVar = indexVar
         if type(allRuns_csv) == str:
             self.allRuns_csv = pd.read_csv(allRuns_csv)
-            self.allRuns_csv.rename(columns={'H':'data'}, inplace=True)
+            self.allRuns_csv.rename(columns={indexVar:'data'}, inplace=True)
         else:
             print('Using provided .csv file. If errors, try passing the path and I handle types and names')
             self.allRuns_csv = allRuns_csv
@@ -44,14 +48,14 @@ class PathFinder:
         if not os.path.exists(self.working_directory + "/" + selectionName):
             os.makedirs(self.working_directory + "/" + selectionName)
 
-    def createSelection(self, name, minH, maxH, color = 1):
+    def createSelection(self, name, minH, maxH, color = 1, slectionVar = 'H'):
         """Select a group of lines based on theri end H value
         INPUTS: the name, min and max H, and the color for this group's plots
         OUTPUT: selection as class instance"""
-        selection = self.allRuns_csv.loc[(self.allRuns_csv["H"] >= minH) & (self.allRuns_csv["H"] <= maxH)]
+        selection = self.allRuns_csv.loc[(self.allRuns_csv[slectionVar] >= minH) & (self.allRuns_csv[slectionVar] <= maxH)]
         self.selections[name] = selection
         self.makedir(name)
-        print(f'{selection.shape[0]} runs with H between {minH} and {maxH}')
+        print(f'{selection.shape[0]} runs with {slectionVar} between {minH} and {maxH}')
         if self.filterW_capacity:
             print("(PathFinder) Filtering totalCapacity/W < 200")
             indexFilter = []
@@ -97,7 +101,7 @@ class PathFinder:
         else:
             seeds = self.get_seeds(selectionName)
         if stateVariables[0] == "params": #handle the case where params were not retreived, re-runs with H
-            stateVariables = ["H"]
+            stateVariables = [self.indexVar]
         simdata = {}
         for seed in seeds:
             if self.oldstyle:
@@ -111,13 +115,15 @@ class PathFinder:
                 params['PROVIDER_INIT'] = ['applyFixed']
                 params['PATIENT_INIT'] = ['applyFixed']
                 params["OBS_PERIOD"] = [self.OBS_PERIOD]
-                params["reproduce_line"]= ["true"]
 
                 for key, value in tweak.items():
                     params[key] = value
 
                 if 'H' in params:
                     params.pop('H')
+                if 'Fitness' in params:
+                    params.pop('Fitness')
+
 
             for stateVariable in stateVariables:
                 params[f"obs{stateVariable}"] = "true"
@@ -126,6 +132,11 @@ class PathFinder:
             #simdata[seed] = {stateVariable: pd.DataFrame(run_data[0][stateVariable], columns = [str(x) for x in run_data[0]["windows"]]),
             #                 "windows": pd.DataFrame({'0':run_data[0]["windows"]})}
             receivedParams = json.loads(bytes(self.c.received_params.strip()))
+            #handle multidimentional outputs
+            #TODO parametrize if min, max, mean ,etc
+            if stateVariable in ['E']:
+                run_data = self.filterMaxValuePerProvider(run_data = run_data, stateVariable = stateVariable)
+
             win = pd.DataFrame({'0':run_data[0]["windows"]})
             simdata[seed] = {stateVariable: pd.DataFrame(run_data[0][stateVariable], columns = [str(x) for x in pd.DataFrame({'0':run_data[0]["windows"]}).index.to_list()]),
                              "windows": win,
@@ -135,6 +146,11 @@ class PathFinder:
             self.save_run_to_disk(simdata = simdata, selectionName=selectionName)
         return (simdata)
 
+    def filterMaxValuePerProvider(self, run_data, stateVariable):
+        """Take the max value across providers at each window to per patient"""
+        run_data[0][stateVariable] = np.array(run_data[0][stateVariable]).max(axis=1)
+        return run_data
+
     def save_run_to_disk(self, simdata,selectionName):
         """Saves run to disk with:
         simulation file identifier: stateVariable_seed_OBSPERIOD
@@ -143,7 +159,8 @@ class PathFinder:
             for stateVariable in simdata[seed]:
                 simdata[seed][stateVariable].to_csv(f"{self.working_directory}/{selectionName}/{stateVariable}_{seed}_{self.OBS_PERIOD}", index=False)
 
-    def produce(self, stateVariables, selectionName, seeds = [], tweak = {}):
+    def produce(self, stateVariables: object, selectionName: object, seeds: object = [],
+                tweak: object = {}) -> dict[Any, Any]:
         """For each necesary run results, retrieve them from disk, or run them from engine if not available"""
         #Todo when reading from disk, data frames contain the 'Unnamed: 0' column/(index?). When retreiving from simulation they don't.
         if len(seeds) ==0:
@@ -181,8 +198,8 @@ class PathFinder:
         savedResults = self.selections[selection]
         for savedRow in range(savedResults.shape[0]):
             seed = savedResults.iloc[savedRow]["seeds"]
-            results = self.produce(stateVariables = ["H"], selectionName=selection, seeds = [seed])
-            finalMean = np.array(results[seed]["H"])[:,-1].mean()
+            results = self.produce(stateVariables = [self.indexVar], selectionName=selection, seeds = [seed])
+            finalMean = np.array(results[seed][self.indexVar])[:,-1].mean()
             print(f"Saved final H: {savedResults.iloc[savedRow]["data"]}. Produced final H: {finalMean}")
 
     def find_5_traj(self, selection,stateVar, q=None, window=200):
@@ -215,9 +232,9 @@ class PathFinder:
         """Find the parametrization with max value"""
         #return self.selections[selection].loc[self.selections[selection][param] ==
         #                                      self.selections[selection][param].max()]['seeds'].iloc[0]
-        return self.selections[selection].sort_values(by="H", ascending=False)['seeds'].iloc[0:number_of_max]
+        return self.selections[selection].sort_values(by=self.indexVar, ascending=False)['seeds'].iloc[0:number_of_max]
 
-    def plot_some_lines(self, selection, window, q = None, stateVar="H", lines = None, color = "selection"):
+    def plot_some_lines(self, selection, window, q = None, stateVar='H', lines = None, color = "selection"):
         """Plot the lines for the percentiles 0, 0.25, 0.5, 0.75, 1 at time window window (or q lines if given)
         Input: data, the dictionary with all the data for each type.
         type: (str) the data type
@@ -315,9 +332,9 @@ class PathFinder:
                 id = entry.name.split("_")[2].split(".")[0]
                 iteration = entry.name.split("_")[1].split("pathFinder")[0]
                 if id not in runs:
-                    runs[id] = {iteration : {'H':pd.read_csv(entry.path)}}
+                    runs[id] = {iteration : {self.indexVar:pd.read_csv(entry.path)}}
                 else:
-                    runs[id].update({iteration : {'H':pd.read_csv(entry.path)}})
+                    runs[id].update({iteration : {self.indexVar:pd.read_csv(entry.path)}})
         for entry in os.scandir(f"{dataPath}/seeds"):
             if entry.is_file() and "csv" in entry.name.split("."):
                 id = entry.name.split("_")[2].split(".")[0]
@@ -328,7 +345,7 @@ class PathFinder:
         seeds = np.empty(0)
         for ids in runs:
             for iteration in runs[ids]:
-                Hs = np.append(Hs, runs[ids][iteration]['H'])
+                Hs = np.append(Hs, runs[ids][iteration][self.indexVar])
                 seeds = np.append(seeds, runs[ids][iteration]['seeds'])
 
         readed = pd.DataFrame({'seeds': seeds, 'data': Hs})
