@@ -138,7 +138,11 @@ class PathFinder:
                 run_data = self.filterMaxValuePerProvider(run_data = run_data, stateVariable = stateVariable)
 
             win = pd.DataFrame({'0':run_data[0]["windows"]})
-            simdata[seed] = {stateVariable: pd.DataFrame(run_data[0][stateVariable], columns = [str(x) for x in pd.DataFrame({'0':run_data[0]["windows"]}).index.to_list()]),
+            if stateVariable == 'Performance':
+                fomatedData = [run_data[0][stateVariable]]
+            else:
+                fomatedData = run_data[0][stateVariable]
+            simdata[seed] = {stateVariable: pd.DataFrame(fomatedData, columns = [str(x) for x in pd.DataFrame({'0':run_data[0]["windows"]}).index.to_list()]),
                              "windows": win,
                              "params": pd.DataFrame(receivedParams, index=[0])}
             self.c.start_server()

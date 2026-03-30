@@ -9,7 +9,7 @@ from products.outcomesMatrix.complex_plotter import complexAxeDict, populate_axe
 
 p = LinePlotter()
 
-ENGINE_PATH = '/Users/nicolasbarticevic/Desktop/CareEngineAnalytics/engine/PathFinder6_middleway.jar'
+ENGINE_PATH = '/Users/nicolasbarticevic/Desktop/CareEngineAnalytics/engine/PathFinder7.jar.jar'
 java_output = f'/Users/nicolasbarticevic/Desktop/ecj_run/q1_design/'
 # working_directory = f'/Users/nicolasbarticevic/Desktop/ecj_run/simulationOutputs/otucomesMatrix/q1_design/'
 working_directory = f'/Users/nicolasbarticevic/Desktop/simulationOutputs/JAMPaper/dynamicBase_Risk_Need/'
