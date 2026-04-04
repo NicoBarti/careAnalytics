@@ -12,11 +12,12 @@ SETTINGS = {
     'engine_path': '/Users/nicolasbarticevic/Desktop/CareEngineAnalytics/engine/PathFinder7.jar',
     'base_working_dir': '/Users/nicolasbarticevic/Desktop/simulationOutputs/JAMPaper/dominance_lines/',
     'treatments': ['need', 'risk', 'basal'],
-    'reps': 30,
+    'reps': 10,
     'state_variables': ['T', 'N', 'SimpleB'],
     'cmap': mpl.colormaps['plasma'],
     'OBS_PERIOD': 1,
     'csv_filename': 'dominance_lines.csv',
+    'subDir': 'long300_lowkappa_001',
     
     # Feature Flags
     'plot_lambda_series': False,   # Set to False to skip the main lambda comparison plot
@@ -29,6 +30,8 @@ def process_simulation(params, settings, selection_name, state_vars_override=Non
     """Runs the simulation for a specific configuration and processes the results."""
     # Ensure OBS_PERIOD is set
     params['OBS_PERIOD'] = settings['OBS_PERIOD']
+    params['fixed_kappa'] = 0.01
+
     
     state_vars = state_vars_override if state_vars_override else settings['state_variables']
 
@@ -40,7 +43,7 @@ def process_simulation(params, settings, selection_name, state_vars_override=Non
         initial_seed=params['seeds'], 
         work_dir=settings['base_working_dir'], 
         engine_path=settings['engine_path'], 
-        treatment=f'{selection_name}/need'
+        treatment=f'{selection_name}/{SETTINGS['subDir']}'
     )
 
     return raw_data
@@ -271,6 +274,8 @@ def main():
         # Aditional individual figures
         fig1, ax1 = plt.subplots(nrows=1, ncols=1, layout="constrained")
         fig2, ax2 = plt.subplots(nrows=1, ncols=1, layout="constrained")
+        fig3, ax3 = plt.subplots(nrows=1, ncols=1, layout="constrained")
+        fig4, ax4 = plt.subplots(nrows=1, ncols=1, layout="constrained")
         
         for chosen_lambda in chosen_lambdas:
             schedules = ['need', 'risk', 'basal']
@@ -437,10 +442,12 @@ def main():
                                      title = 'Previous Appointments Treated', y_label='Average Number of Previous Appointments')
 
                 seeking = care_seeking(mech_data)
-                plot_temporal_series(ax=needTreatAx[3][1], data=np.array(seeking), label=summary_label,
+                for aa in [needTreatAx[3][1], ax3]:
+                    plot_temporal_series(ax=aa, data=np.array(seeking), label=summary_label,
                                      color=colorHist, linestyle='solid',
                                      title='Care seeking behaviour',
-                                     y_label='Average Number of Attempts to Seek Care')
+                                     y_label='Proportion of the Population Seeking Care')
+
 
                 simexp = simpleExpectations(raw_data=mech_data, W = params['W'])
                 plot_temporal_series(ax=needTreatAx[3][2], data=np.array(simexp), label = summary_label, color = colorHist, linestyle='solid',
@@ -455,6 +462,10 @@ def main():
                 corrMaxExp = corrExp_Health(mech_data, expectationType='MaxExp')
                 plot_temporal_series(ax=needTreatAx[4][2], data=np.array(corrMaxExp), label = summary_label, color = colorHist, linestyle='solid',
                                      title = 'Correlation Max. Expectations Health', y_label='Correlation')
+
+
+
+
 
         histFig.show()
         needTreatFig.show()
