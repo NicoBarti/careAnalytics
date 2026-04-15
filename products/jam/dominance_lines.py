@@ -12,25 +12,26 @@ SETTINGS = {
     'engine_path': '/Users/nicolasbarticevic/Desktop/CareEngineAnalytics/engine/PathFinder7.jar',
     'base_working_dir': '/Users/nicolasbarticevic/Desktop/simulationOutputs/JAMPaper/dominance_lines/',
     'treatments': ['need', 'risk', 'basal'],
-    'reps': 10,
+    'reps': 5,
     'state_variables': ['T', 'N', 'SimpleB'],
     'cmap': mpl.colormaps['plasma'],
     'OBS_PERIOD': 1,
     'csv_filename': 'dominance_lines.csv',
-    'subDir': 'long300_lowkappa_001',
-    
+    'subDir': 'long300_lowkappa_01',
+    'fixed_kappa': 0.1,  # change accordingly to subDir
+
     # Feature Flags
     'plot_lambda_series': False,   # Set to False to skip the main lambda comparison plot
     'add_risk_baseline': False,    # Set to False to skip adding the risk baseline line
     'plot_mechanism': True,       # Set to False to skip the detailed mechanism analysis
-    'run_jaccard': False           # Set to False to skip Jaccard analysis in mechanism section
+    'run_jaccard': True           # Set to False to skip Jaccard analysis in mechanism section
 }
 
 def process_simulation(params, settings, selection_name, state_vars_override=None):
     """Runs the simulation for a specific configuration and processes the results."""
     # Ensure OBS_PERIOD is set
     params['OBS_PERIOD'] = settings['OBS_PERIOD']
-    params['fixed_kappa'] = 0.01
+    params['fixed_kappa'] = settings['fixed_kappa']
 
     
     state_vars = state_vars_override if state_vars_override else settings['state_variables']

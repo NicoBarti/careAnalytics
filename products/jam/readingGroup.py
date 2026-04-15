@@ -51,38 +51,79 @@ def generate_error_data(params, reps, state_vars, initial_seed, work_dir, engine
 
 # --- ANALYSIS HELPER FUNCTIONS ---
 
-def compute_jaccard(data_dict, state_var):
-    """Computes Jaccard similarity matrix for a state variable."""
-    simulation = data_dict[next(iter(data_dict))] # Only uses the first simulation run
-    jaccardMatrix = np.empty((0, simulation[state_var].shape[1]))
-    for windowA in simulation[state_var]:
-        jaccard_row = []
-        for windowB in simulation[state_var]:
-            union = (simulation[state_var][windowA] > 0) | (simulation[state_var][windowB] > 0)
-            intersection = (simulation[state_var][windowA] > 0) & (simulation[state_var][windowB] > 0)
-            if not union.any():
-                jaccard_row.append(np.nan)
+def compute_jaccard(data_dict, state_var, all_replicates=False):
+    """Computes Jaccard similarity matrix for a state variable.
+    
+    Args:
+        data_dict (dict): Dictionary of simulation runs.
+        state_var (str): The state variable to analyze.
+        all_replicates (bool): If True, averages over all replicates. If False, uses only the first.
+    """
+    if not all_replicates:
+        # Original behavior: use only the first replicate
+        simulation = data_dict[next(iter(data_dict))]
+        num_windows = simulation[state_var].shape[1]
+        jaccardMatrix = np.empty((num_windows, num_windows))
+        data = simulation[state_var].values > 0
+        
+        for i in range(num_windows):
+            for j in range(num_windows):
+                union = data[:, i] | data[:, j]
+                intersection = data[:, i] & data[:, j]
+                if not union.any():
+                    jaccardMatrix[i, j] = np.nan
+                else:
+                    jaccardMatrix[i, j] = intersection.sum() / union.sum()
+        return jaccardMatrix
+    
+    # Average over all replicates
+    all_matrices = []
+    for simulation in data_dict.values():
+        num_windows = simulation[state_var].shape[1]
+        jaccard_matrix = np.empty((num_windows, num_windows))
+        data = simulation[state_var].values > 0
+        
+        for i in range(num_windows):
+            for j in range(num_windows):
+                union = data[:, i] | data[:, j]
+                intersection = data[:, i] & data[:, j]
+                if not union.any():
+                    jaccard_matrix[i, j] = np.nan
+                else:
+                    jaccard_matrix[i, j] = intersection.sum() / union.sum()
+        all_matrices.append(jaccard_matrix)
+    
+    return all_matrices
+
+def compute_vicinity(data_dict, state_var, behaviour, all_replicates=False):
+    """Computes average state variable based on patient behaviour mask.
+    
+    Args:
+        data_dict (dict): Dictionary of simulation runs.
+        state_var (str): The state variable to analyze.
+        behaviour (str): "seekers" or "treated" to define the mask.
+        all_replicates (bool): If True, averages over all replicates. If False, uses only the first.
+    """
+    def _get_vicinity(simulation):
+        size = simulation[state_var].shape[1]
+        matrix = np.empty((0, size))
+        for windowA in range(size):
+            if behaviour == "seekers":
+                mask = simulation['SimpleB'].iloc[:, windowA] != 1
+            elif behaviour == "treated":
+                mask = simulation['T'].iloc[:, windowA] == 0
             else:
-                jaccard_row.append(intersection.sum() / union.sum())
-        jaccardMatrix = np.concatenate((jaccardMatrix, np.array([jaccard_row])), axis=0)
-    return jaccardMatrix
+                mask = pd.Series([False] * simulation[state_var].shape[0])
 
-def compute_vicinity(data_dict, state_var, behaviour):
-    """Computes average state variable based on patient behaviour mask."""
-    simulation = data_dict[next(iter(data_dict))]  # Only uses the first simulation run
-    size = simulation[state_var].shape[1]
-    vecinityMatrix = np.empty((0, size))
-    for windowA in range(size):
-        if behaviour == "seekers":
-            mask = simulation['SimpleB'].iloc[:, windowA] != 1
-        elif behaviour == "treated":
-            mask = simulation['T'].iloc[:, windowA] == 0
-        else:
-            mask = pd.Series([False] * simulation[state_var].shape[0])
+            vicinity = simulation[state_var].mask(mask, other=np.nan).mean(axis=0)
+            matrix = np.concatenate((matrix, np.array([vicinity])), axis=0)
+        return matrix
 
-        vecinity = simulation[state_var].mask(mask, other=np.nan).mean(axis=0)
-        vecinityMatrix = np.concatenate((vecinityMatrix, np.array([vecinity])), axis=0)
-    return vecinityMatrix
+    if not all_replicates:
+        return _get_vicinity(data_dict[next(iter(data_dict))])
+
+    all_vicinities = [_get_vicinity(sim) for sim in data_dict.values()]
+    return np.array(all_vicinities)
 
 def compute_correlations_and_percentages(error_data, capacity):
     """Computes correlations between Need/Use and usage percentages."""
@@ -187,7 +228,8 @@ def plot_jaccard_analysis(jaccard_data, seeker_data, treatments=None, optionalTi
             
             ax_diag.plot(matrix.diagonal(), color=c(1), label='t', linestyle='solid')
             if matrix.shape[0] > 1: ax_diag.plot(matrix.diagonal(offset=1), color=c(0.4), label='t+1', linestyle='solid')
-            if matrix.shape[0] > 2: ax_diag.plot(matrix.diagonal(offset=2), color=c(0.7), label='t+2', linestyle='solid')
+            #if matrix.shape[0] > 2: ax_diag.plot(matrix.diagonal(offset=2), color=c(0.7), label='t+2', linestyle='solid')
+            if matrix.shape[0] > 1: ax_diag.plot(matrix.diagonal(offset=-1), color=c(0.7), label='t-1', linestyle='dashed')
             ax_diag.set_title("Diagonal Decay")
             ax_diag.legend()
             

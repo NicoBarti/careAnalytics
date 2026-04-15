@@ -15,19 +15,20 @@ SETTINGS = {
     'engine_path': '/Users/nicolasbarticevic/Desktop/CareEngineAnalytics/engine/PathFinder7.jar',
     'base_working_dir': '/Users/nicolasbarticevic/Desktop/simulationOutputs/JAMPaper/dominance_lines/',
     'treatments': ['need', 'risk', 'basal'],
-    'reps': 10,
+    'reps': 30,
     'state_variables': ['T', 'N', 'H', 'SimpleB'],
     'cmap': mpl.colormaps['plasma'],
     'OBS_PERIOD': 1,
     'csv_filename': 'dominance_lines.csv',
     'varsigma': 300,
-    'subDir': 'long300_lowkappa_001', #change the varsigma here too and pay attention to directory
+    'subDir': 'long300_lowkappa_01', #change the varsigma here too and pay attention to directory
+    'fixed_kappa': 0.1, #change accordingly to subDir
 
     # Feature Flags
     'plot_lambda_series': False,  # Set to False to skip the main lambda comparison plot
     'add_risk_baseline': False,  # Set to False to skip adding the risk baseline line
     'plot_mechanism': True,  # Set to False to skip the detailed mechanism analysis
-    'run_jaccard': False,  # Set to False to skip Jaccard analysis in mechanism section
+    'run_jaccard': True,  # Set to False to skip Jaccard analysis in mechanism section
     
     # Strategy Selection for Plotting
     'plot_quantile_schedules': ['need', 'risk', 'basal'] # Choose from ['need', 'basal', 'risk']
@@ -37,7 +38,7 @@ def process_simulation(params, settings, selection_name, state_vars_override=Non
     """Runs the simulation for a specific configuration and processes the results."""
     params['OBS_PERIOD'] = settings['OBS_PERIOD']
     params['varsigma'] = settings['varsigma']
-    params['fixed_kappa'] = 0.01
+    params['fixed_kappa'] = settings['fixed_kappa']
 
 
     state_vars = state_vars_override if state_vars_override else settings['state_variables']
@@ -50,7 +51,7 @@ def process_simulation(params, settings, selection_name, state_vars_override=Non
         initial_seed=params['seeds'], 
         work_dir=settings['base_working_dir'], 
         engine_path=settings['engine_path'], 
-        treatment=f'{selection_name}/{settings['subDir']}'
+        treatment=f'{selection_name}/{settings["subDir"]}'
     )
     return raw_data
 
@@ -201,7 +202,7 @@ def main():
 
 
     #bounds = np.linspace(0, 1, 20) # Generate 20 points between 0 and 1
-    bounds = [1000/3500] # = 1000 patients for N = 3500
+    bounds = [1000/3500] # = 1000 patients for N = 3500, so its the top or bottom 1000
     for bound in bounds:
         # --- Plotting Quantiles of Needs for Treated Patients (T > 0) ---
         fig, ax = plt.subplots(figsize=(12, 9))
@@ -256,15 +257,17 @@ def main():
             color = colors[schedule]
             #q25 = mean_quantiles[0, :]
             #q75 = mean_quantiles[1, :]
-            q25, q75 = np.nanquantile(treated_needs, q=[bound, 1-bound], axis=(0,1))
+            q25, q50, q75 = np.nanquantile(treated_needs, q=[bound, 0.5, 1-bound], axis=(1))
+            q25, q50, q75 = np.mean(q25, axis=0), np.mean(q50, axis=0), np.mean(q75, axis=0)
+
             ax.plot(time_axis, q25, color=color, linestyle='--', linewidth=1, alpha=0.7)
             ax.plot(time_axis, q75, color=color, linestyle='--', linewidth=1, alpha=0.7)
             ax.fill_between(time_axis, q25, q75, color=color, alpha=0.3, label=labels[schedule])
 
             # Plot the mean of treated needs
-            mean_treated_needs = np.nanmean(np.nanmean(treated_needs, axis=1), axis=0)
+            #mean_treated_needs = np.nanmean(np.nanmean(treated_needs, axis=1), axis=0)
             #median_treated_needs = np.nanmedian(np.nanmedian(treated_needs, axis=1), axis=0)
-            ax.plot(time_axis, mean_treated_needs, color=color, linewidth=2)
+            ax.plot(time_axis, q50, color=color, linewidth=2)
 
             # Plot 2: Only .25 Quantile (for all three if in plot_quantile_schedules)
             ax_q25.plot(time_axis, q25, color=color, linestyle='solid', linewidth=1)
@@ -331,7 +334,7 @@ def main():
         # Finalize Figure 1
         fig.suptitle('Needs at the Moment of Treatment Delivery', fontsize=16)
         ax.set_xlabel('Simulation Time (Cycles)', fontsize=14)
-        ax.set_ylabel('Mean and IQR of Patient Needs at Appointment', fontsize=14)
+        ax.set_ylabel('Median and IQR of Needs at the Moment of Treatment', fontsize=14)
         ax.legend(loc='upper left')
         ax.grid(True, linestyle=':', alpha=0.6)
 
