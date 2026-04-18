@@ -130,7 +130,7 @@ def main():
     # Unified figure for Expectations and Correlations
     fig_exp_corr, ax_exp_corr = plt.subplots(nrows=1, ncols=2, figsize=(18, 7))
     fig_diagon, ax_diagon = plt.subplots(nrows=1, ncols=2, figsize=(18, 7))
-    fig_focus, ax_focus = plt.subplots(figsize=(12, 7))
+    fig_focus, ax_focus = plt.subplots(figsize=(18, 7))
     
     # Grid Mosaic: Progression on left, Vertical Histograms on right
     axd = plt.figure(layout="constrained", figsize=(12, 7)).subplot_mosaic(
@@ -149,6 +149,10 @@ def main():
     #fig_heat, ax_heat = plt.subplots(nrows=1, ncols=3, figsize=(22, 7))
     fig_heat, ax_heat = plt.subplot_mosaic(mosaic = """NRBc""",layout="constrained", figsize = (22,7),
                                             width_ratios=[1,1,1,0.07])
+
+    # Transient Engagement Row Grid
+    row_indices = [5, 60, 170]
+    fig_row_grid, ax_row_grid = plt.subplots(nrows=1, ncols=3, figsize=(22, 7), layout='constrained')
 
     bound = SETTINGS['bound']
 
@@ -226,17 +230,27 @@ def main():
         #ax_diagon[1].plot(treatJac.diagonal(offset=1), color=color, label=f'{label}', linestyle='solid')
 
         #Vecinity
+        needVicinity_all_reps = compute_vicinity(data_dict, 'N', "treated", all_replicates=True)
+        needVicinity_mean = needVicinity_all_reps.mean(0)
+        
+        # Heatmap (Conditional)
         if SETTINGS['vecinity']:
-            #l = True if schedule == 'basal' else False
             if schedule == 'need':
                 a = ax_heat['N']
             elif schedule == 'risk':
                 a = ax_heat['R']
             else:
                 a = ax_heat['B']
-            needVecinity = compute_vicinity(data_dict, 'N', "treated", all_replicates=True)
+            sns.heatmap(needVicinity_mean, ax = a, vmin = 0, vmax = 10, cbar_ax= ax_heat['c'])
 
-            sns.heatmap(needVecinity.mean(0), ax = a, vmin = 0, vmax = 10, cbar_ax= ax_heat['c'])
+        # Transient Engagement Grid slices
+        for idx, row_idx in enumerate(row_indices):
+            if row_idx < needVicinity_mean.shape[0]:
+                xs_row = np.arange(needVicinity_mean.shape[1])
+                row_slice = needVicinity_mean[row_idx, :]
+                start = max(0, row_idx - 5)
+                end = min(len(row_slice), row_idx + 6)
+                ax_row_grid[idx].plot(xs_row[start:end], row_slice[start:end], label=label, color=color, linewidth=2, marker='o', markersize=4)
 
         # 6. Histograms on right of mosaic (end of simulation)
         if schedule == 'basal':
@@ -249,7 +263,7 @@ def main():
         plot_histogram(ax=axd[ax_idx], error_data=data_dict, title=f'{label} (End)', 
                        color=color, xlab='Disease Progression', hist_label=label)
 
-        # 7. Print Statistics to Console
+        # 8. Print Statistics to Console
         # Extract disease progression (H) at the last cycle for all replicates
         final_H = np.array([d['H'].iloc[:, -1] for d in data_dict.values()]) # (Reps, Patients)
         sums = final_H.sum(axis=1) # (Reps,)
@@ -335,10 +349,20 @@ def main():
     axd['N'].set_title('Progression at Cycle 300 - Need-Prioritisation', fontsize = 12)
     axd['N'].set_xlabel('Disease Progression',fontsize = 10)
     axd['N'].set_ylabel('Patients',fontsize = 10)
-    fig_delivery.tight_layout()
-    fig_health.tight_layout()
-    fig_seeking.tight_layout()
-    #fig_heat.tight_layout()
+    
+    # Finalize Row Grid Plot
+    fig_row_grid.suptitle('Progression of Needs for Patients that Received Treatment During a Cycle', fontsize=16)
+    for idx, row_idx in enumerate(row_indices):
+        ax_row_grid[idx].axvline(x=row_idx, color='gray', linestyle='--', alpha=0.5, label='Reference Cycle')
+        ax_row_grid[idx].set_title(f'Patients Receiving Treatment at Cycle {row_idx}', fontsize=14)
+        ax_row_grid[idx].set_xlabel("Simulation Cycle", fontsize=14)
+        ax_row_grid[idx].set_ylabel("Average Needs", fontsize=14)
+        ax_row_grid[idx].legend(loc='upper right', fontsize=12)
+        ax_row_grid[idx].grid(True, linestyle=':', alpha=0.6)
+        ax_row_grid[idx].set_ylim(0, 10)
+    
+    fig_row_grid.show()
+
     fig_exp_corr.tight_layout()
 
     plt.show()
