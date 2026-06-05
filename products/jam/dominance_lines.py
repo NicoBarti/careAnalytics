@@ -2,6 +2,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import os # Import the os module for path checking
 
 # Import updated functions from refactored readingGroup.py
 from products.jam.readingGroup import plot_temporal_series, generate_error_data, compute_jaccard, compute_vicinity, \
@@ -9,8 +10,8 @@ from products.jam.readingGroup import plot_temporal_series, generate_error_data,
 
 # --- SETTINGS ---
 SETTINGS = {
-    'engine_path': '/Users/nicolasbarticevic/Desktop/CareEngineAnalytics/engine/PathFinder7.jar',
-    'base_working_dir': '/Users/nicolasbarticevic/Desktop/simulationOutputs/JAMPaper/dominance_lines/',
+    'engine_path': '/Users/Nico/Desktop/CareEngineAnalytics/engine/PathFinder7.jar',
+    'base_working_dir': '/Users/Nico/Desktop/simulationOutputs/JAMPaper/dominance_lines',
     'treatments': ['need', 'risk', 'basal'],
     'reps': 5,
     'state_variables': ['T', 'N', 'SimpleB'],
@@ -21,7 +22,7 @@ SETTINGS = {
     'fixed_kappa': 0.1,  # change accordingly to subDir
 
     # Feature Flags
-    'plot_lambda_series': False,   # Set to False to skip the main lambda comparison plot
+    'plot_lambda_series': True,   # Set to False to skip the main lambda comparison plot
     'add_risk_baseline': False,    # Set to False to skip adding the risk baseline line
     'plot_mechanism': True,       # Set to False to skip the detailed mechanism analysis
     'run_jaccard': True           # Set to False to skip Jaccard analysis in mechanism section
@@ -171,8 +172,29 @@ def previous_encounters(raw_data, ):
 
 
 def main():
+    # --- Path Handling for multiple machines ---
+    current_base_working_dir = SETTINGS['base_working_dir']
+    current_engine_path = SETTINGS['engine_path']
+
+    # Check if the current base_working_dir exists
+    if not os.path.exists(current_base_working_dir):
+        print(f"Warning: Base working directory '{current_base_working_dir}' not found. Trying alternative path.")
+        # Assume the other user's path
+        if "/Users/Nico" in current_base_working_dir:
+            SETTINGS['base_working_dir'] = current_base_working_dir.replace("/Users/Nico", "/Users/nicolasbarticevic")
+            SETTINGS['engine_path'] = current_engine_path.replace("/Users/Nico", "/Users/nicolasbarticevic")
+        elif "/Users/nicolasbarticevic" in current_base_working_dir:
+            SETTINGS['base_working_dir'] = current_base_working_dir.replace("/Users/nicolasbarticevic", "/Users/Nico")
+            SETTINGS['engine_path'] = current_engine_path.replace("/Users/nicolasbarticevic", "/Users/Nico")
+        else:
+            print("Error: Neither '/Users/Nico' nor '/Users/nicolasbarticevic' found in base_working_dir. Please check paths.")
+            return # Exit if paths are completely unexpected
+
+        print(f"Updated base working directory to: {SETTINGS['base_working_dir']}")
+        print(f"Updated engine path to: {SETTINGS['engine_path']}")
+
     # 1. Load Configuration Data
-    data_path = f"{SETTINGS['base_working_dir']}/{SETTINGS['csv_filename']}"
+    data_path = os.path.join(SETTINGS['base_working_dir'], SETTINGS['csv_filename'])
     try:
         data = pd.read_csv(data_path)
     except FileNotFoundError:
@@ -247,7 +269,7 @@ def main():
                 )
 
         # Finalize Main Plot
-        ax.set_title("Efficiency of the Need-Prioritization Routine for Different Learning Rates Across Time", fontsize=30)
+        #ax.set_title("Efficiency of the Need-Prioritization Routine for Different Learning Rates Across Time", fontsize=30)
         ax.set_ylabel('Average needs treated by appointment', fontsize=25)
         ax.set_xlabel('Time (cycles)', fontsize=25)
         ax.legend(fontsize=20)
