@@ -37,7 +37,7 @@ class Client:
 
 
     def socket_with_model_paramGrid_2(self, gridParameters, PORT=8383, HOST='localhost', bufer_size=8000, printInfo=False,
-                                      ComputeErrors=1, fetchType='OK_params'):
+                                      ComputeErrors=1, fetchType='OK_params', batch_size=100):
         """Connect to the Java ABM and return its output.
 
         Important paramenters:
@@ -45,55 +45,67 @@ class Client:
         Output:
         a dictionary with rows of grid in key and results as values
         """
-        fetchMessage = self.build_fetchMessage(fetchType)
+        simulation_map = []
+        batch_params = []
+        for err in range(ComputeErrors):
+            for i in range(len(gridParameters)):
+                params = self.unpack2(gridParameters.iloc[i])
+                simulation_map.append((err, i))
+                batch_params.append(params)
+        
         errors = {}
-        for i in range(0, ComputeErrors):
-            errors[i] = {}
+        for err in range(ComputeErrors):
+            errors[err] = {}
+
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            #try:
             s.connect((str(self.HOST), int(self.PORT)))
-            #except ConnectionRefusedError as e:
-            #    print(f"(Python Client) Parece que Java refused: {e}")
-            #    print(f"Tratando de nuevo")
-            #    time.sleep(12)
-            for err in range(0, ComputeErrors):
-                data = {}
-                for i in range(len(gridParameters)):
-                    #params = self.unpackGrid(gridParameters.iloc[i])
-                    params = self.unpack2(gridParameters.iloc[i]) #This method passess strings
-                    params_to_bytes = bytes(json.dumps(params) + '\n', 'UTF-8')
-                    s.send(params_to_bytes)
-                    self.received_params = s.recv(bufer_size)
-                    if self.received_params.strip() != b'Done': ##skip param verification in this case, json.loads fails
-                        if (not self.comparaParams(enviados=params, recividos=json.loads(bytes(self.received_params.strip())))):
-                            s.close()
-                            return ()
-                    s.send(fetchMessage)
-                    data_size = s.recv(bufer_size)
-                    s.send(b"chunk\n")
-                    results = bytearray()
-                    print(f'from engine {self.received_params}')
-                    while len(results) < int(data_size):
-                        results.extend(s.recv(bufer_size).strip())
-                    if len(results.strip()) == int(data_size):
-                        errors[err][i] = json.loads(bytes(results))
-                        # data[i] = json.loads(bytes(results))
-                    else:
-                        print("ERROR. Expected", int(data_size), "bytes, but received ", len(results.strip()))
-                        return ("")
-                    s.send(b'NextCall\n')
-                    afterNextCall = s.recv(bufer_size)
-                    #print(afterNextCall, "after sending NextCall to server")
-                    if afterNextCall == b'\n':
-                        s.recv(bufer_size) ##trying to catch case where there was just one more \n bit to receive
-                # errors[err] = data
-            s.close()
-        if (printInfo):
-            print({'sent_params': params, 'PORT': PORT, 'HOST': HOST, 'buffer_size': bufer_size})
-        if (ComputeErrors == 1):
-            return (errors[0])
+            with s.makefile('r', encoding='utf-8') as sock_file:
+                for chunk_idx in range(0, len(batch_params), batch_size):
+                    chunk_params = batch_params[chunk_idx:chunk_idx + batch_size]
+                    chunk_map = simulation_map[chunk_idx:chunk_idx + batch_size]
+                    
+                    payload = json.dumps(chunk_params) + '\n'
+                    s.sendall(payload.encode('utf-8'))
+                    
+                    response_line = sock_file.readline()
+                    if not response_line:
+                        print("ERROR: Connection closed by server or empty response.")
+                        return {}
+                    
+                    try:
+                        chunk_results = json.loads(response_line)
+                    except json.JSONDecodeError as e:
+                        print(f"ERROR: Failed to parse batch response JSON: {e}")
+                        print(f"Raw response: {response_line[:500]}")
+                        return {}
+                    
+                    if isinstance(chunk_results, dict) and "error" in chunk_results:
+                        print(f"Server Error: {chunk_results['error']}")
+                        return {}
+                    
+                    for idx, res in enumerate(chunk_results):
+                        err, i = chunk_map[idx]
+                        orig_params = chunk_params[idx]
+                        
+                        if "resolved_params" in res:
+                            resolved = res["resolved_params"]
+                            try:
+                                if not self.comparaParams(enviados=orig_params, recividos=resolved):
+                                    print(f"Validation failed for simulation (err={err}, idx={i})")
+                                    return {}
+                            except Exception as ex:
+                                print(f"Validation exception for simulation (err={err}, idx={i}): {ex}")
+                                return {}
+                        
+                        errors[err][i] = res
+                        
+        if printInfo:
+            print({'sent_batch_size': len(batch_params), 'PORT': PORT, 'HOST': HOST, 'batch_size': batch_size})
+            
+        if ComputeErrors == 1:
+            return errors[0]
         else:
-            return (errors)
+            return errors
 
 
     def unpack2(self, row):
@@ -141,7 +153,7 @@ class Client:
                     print("Enviado", key, enviados[key][0])
                     print("Recivido", key, recividos[key])
                     raise Exception("Parametros enviados no coinciden con los recibidos")
-            elif(key == "initial_h"): #Don't check initialization
+            elif(key == "initial_h" or (key == "seed" and str(enviados[key][0]) in ["0", "0.0"])): #Don't check initialization or random seed
                 None
             elif (key == "Pi"):
                 if (enviados[key][0] != str(recividos[key])):
