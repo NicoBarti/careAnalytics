@@ -1,9 +1,13 @@
+import sys
+import os
+# Add the project root to sys.path to allow running this script directly
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+
 import pandas as pd
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
-import os # Import the os module for path checking
 
 # Import updated functions from refactored readingGroup.py
 from products.jam.readingGroup import plot_temporal_series, generate_error_data, plot_histogram
@@ -12,23 +16,25 @@ from products.jam.readingGroup import compute_jaccard, compute_vicinity
 
 # --- SETTINGS ---
 SETTINGS = {
-    'engine_path': '/Users/Nico/Desktop/CareEngineAnalytics/engine/PathFinder7.jar',
-    'base_working_dir': '/Users/Nico/Desktop/simulationOutputs/Hetero_Disease_Exp/',
+    'engine_path': '/Users/Nico/Desktop/CareEngineAnalytics/engine/ABMServer7.jar',
+    'base_working_dir': '/Users/Nico/Desktop/simulationOutputs/Hetero_Disease_Exp_granularity/',
     'treatments': ['need', 'risk', 'basal'],
-    'reps': 30,
+    'reps': 10,
     'state_variables': ['H', 'N', 'T', 'SimpleB', 'Performance', 'MaxExp', 'SimpleE'],
     'cmap': mpl.colormaps['plasma'],
     'OBS_PERIOD': 1,
     'csv_filename': 'dominance_lines.csv',
+    'selection': 'detail',
     'lambda_to_run': 4.0,
     'bound': 1000/3500, # = 1000 patients for N = 3500, so its the top or bottom 1000
 
-    'subDir': 'long300_lowkappa_01', #
+    'subDir': 'prioritization_granularity_1', #
+    'prioritization_granularity': 1,
     'fixed_kappa': 0.1,  # change accordingly to subDir
 
     'varsigma': 300,
     'jaccards': True,
-    'vecinity': False
+    'vecinity': False,
 }
 
 def process_simulation(params, settings, selection_name, state_vars_override=None):
@@ -36,6 +42,7 @@ def process_simulation(params, settings, selection_name, state_vars_override=Non
     params['OBS_PERIOD'] = settings['OBS_PERIOD']
     params['varsigma'] = settings['varsigma']
     params['fixed_kappa'] = settings['fixed_kappa']
+    params['prioritization_granularity'] = settings.get('prioritization_granularity', -1)
 
     state_vars = state_vars_override if state_vars_override else settings['state_variables']
 
@@ -121,7 +128,7 @@ def main():
 
     # 2. Run Simulations and Collect Data
     mech_data = {}
-    selection = 'dominance_lines'
+    selection = SETTINGS['selection']
     schedules = SETTINGS['treatments']
     chosen_lambda = SETTINGS['lambda_to_run']
 
@@ -155,7 +162,8 @@ def main():
     fig_focus, ax_focus = plt.subplots(figsize=(18, 7))
     
     # Grid Mosaic: Progression on left, Vertical Histograms on right
-    axd = plt.figure(layout="constrained", figsize=(12, 7)).subplot_mosaic(
+    fig_mosaic = plt.figure(layout="constrained", figsize=(12, 7))
+    axd = fig_mosaic.subplot_mosaic(
         """
         LB
         LR
@@ -386,6 +394,27 @@ def main():
     fig_row_grid.show()
 
     fig_exp_corr.tight_layout()
+
+    # Save all figures to base_working_dir / error_bars / selection / subDir
+    output_dir = os.path.join(
+        SETTINGS['base_working_dir'],
+        'imgs',
+        SETTINGS['selection'],
+        SETTINGS['subDir']
+    )
+    os.makedirs(output_dir, exist_ok=True)
+    print(f"\nSaving plots to: {output_dir}")
+
+    fig_delivery.savefig(os.path.join(output_dir, 'delivery.png'), dpi=300)
+    fig_health.savefig(os.path.join(output_dir, 'health.png'), dpi=300)
+    fig_seeking.savefig(os.path.join(output_dir, 'seeking.png'), dpi=300)
+    fig_exp_corr.savefig(os.path.join(output_dir, 'expectations_correlations.png'), dpi=300)
+    fig_diagon.savefig(os.path.join(output_dir, 'diagonals.png'), dpi=300)
+    fig_focus.savefig(os.path.join(output_dir, 'focus.png'), dpi=300)
+    fig_heat.savefig(os.path.join(output_dir, 'heatmaps.png'), dpi=300)
+    fig_mosaic.savefig(os.path.join(output_dir, 'mosaic.png'), dpi=300)
+    fig_row_grid.savefig(os.path.join(output_dir, 'row_grid.png'), dpi=300)
+    print("All plots saved successfully.")
 
     plt.show()
 

@@ -112,7 +112,7 @@ class Client:
                 d[par_name] = [int(row[par_name])]
             elif par_name in ['DISEASE_SEVERITY', 'LEARNING_RATE', 'SUBJECTIVE_INITIATIVE', 'SEVERITY_ALLOCATION',
                               "fixed_delta", "fixed_capN", "fixed_rho", "fixed_eta", "fixed_kappa", "fixed_capE",
-                              "fixed_psi", "fixed_lambda", "fixed_tau"]:  ##handle doubles
+                              "fixed_psi", "fixed_lambda", "fixed_tau", "prioritization_granularity"]:  ##handle doubles
                 d[par_name] = [float(row[par_name])]
             elif par_name in ['PROVIDER_INIT','PATIENT_INIT','pathfinder', 'obsH','obsN', 'obsC', 'obsT', 'obsE', 'obsB',
                               "obsSimpleC", "obsSimpleE", "obsSimpleB", "reproduce_line", "obsDisease", "obsExpNoise",
@@ -129,11 +129,13 @@ class Client:
 
     def comparaParams(self, enviados, recividos):
         for key in enviados:
+            if key not in recividos:
+                continue
             if (key == "PROVIDER_INIT" or key == "PATIENT_INIT" or key == "pathfinder" or key == "obsH" or
                     key == "obsN" or key == "obsC" or key == "obsT" or key == "obsE" or key == "obsB"
             or key == "obsSimpleB" or key == "obsSimpleC" or key == "obsSimpleE" or key == "reproduce_line"
             or key == "obsDisease" or key == "obsExpNoise" or key == 'obsInstExp' or key == 'obsDelta'
-            or key == "obsPerformance" or key == 'obsMaxExp'):
+            or key == "obsPerformance" or key == 'obsMaxExp' ):
                 if(str(enviados[key][0])).lower() != str(recividos[key]).lower():
                     print("Parametros enviados no coinciden con los recibidos")
                     print("Enviado", key, enviados[key][0])
