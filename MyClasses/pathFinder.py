@@ -131,7 +131,7 @@ class PathFinder:
             run_data = self.c.socket_with_model_paramGrid_2(gridParameters=pd.DataFrame(params))
             #simdata[seed] = {stateVariable: pd.DataFrame(run_data[0][stateVariable], columns = [str(x) for x in run_data[0]["windows"]]),
             #                 "windows": pd.DataFrame({'0':run_data[0]["windows"]})}
-            receivedParams = json.loads(bytes(self.c.received_params.strip()))
+            receivedParams = run_data[0]["resolved_params"]
             #handle multidimentional outputs
             #TODO parametrize if min, max, mean ,etc
             if stateVariable in ['E']:

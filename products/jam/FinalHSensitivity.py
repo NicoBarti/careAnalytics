@@ -15,13 +15,13 @@ from products.jam.readingGroup import generate_error_data
 # Define the colormap once for consistency
 col = mpl.colormaps['plasma']
 
-BASE_WORKING_DIR = '/Users/Nico/Desktop/simulationOutputs/Hetero_Disease_Exp_granularity/'
+BASE_WORKING_DIR = '/Users/Nico/Desktop/simulationOutputs/try/'
 
 SETTINGS = {
     'engine_path': '/Users/Nico/Desktop/CareEngineAnalytics/engine/ABMServer7.jar',
     'base_working_dir': BASE_WORKING_DIR,
     'output_dir': BASE_WORKING_DIR, #this is for saving img to disk
-    'reps': 5,
+    'reps': 1,
     'state_variables': ['H'],
     'OBS_PERIOD': 300,
     'csv_filename': 'dominance_lines.csv',
