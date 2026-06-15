@@ -191,22 +191,39 @@ def main():
             # Group by param_val to aggregate over reps
             aggregated = policy_df.groupby("param_value").agg(
                 mean_H_avg=("mean_H", "mean"),
-                std_H_avg=("std_H", "mean")
+                mean_H_q05=("mean_H", lambda x: x.quantile(0.05)),
+                mean_H_q95=("mean_H", lambda x: x.quantile(0.95)),
+                std_H_avg=("std_H", "mean"),
+                std_H_q05=("std_H", lambda x: x.quantile(0.05)),
+                std_H_q95=("std_H", lambda x: x.quantile(0.95))
             ).reindex(test_values)
 
             mean_vals = aggregated["mean_H_avg"].values
+            mean_q05 = aggregated["mean_H_q05"].values
+            mean_q95 = aggregated["mean_H_q95"].values
+
             std_vals = aggregated["std_H_avg"].values
+            std_q05 = aggregated["std_H_q05"].values
+            std_q95 = aggregated["std_H_q95"].values
 
             color = policy_colors.get(policy, "black")
             label = policy_labels.get(policy, policy.upper())
 
             # Plot mean H
             ax_mean.plot(test_values, mean_vals, marker='o', label=label, color=color, linewidth=2, alpha=0.8)
+            ax_mean.errorbar(test_values, mean_vals, yerr=[mean_vals - mean_q05, mean_q95 - mean_vals],
+                             fmt='none', ecolor=color, elinewidth=1, capsize=3, alpha=0.6)
             ax_mean_g.plot(test_values, mean_vals, marker='o', label=label, color=color, linewidth=2, alpha=0.8)
+            ax_mean_g.errorbar(test_values, mean_vals, yerr=[mean_vals - mean_q05, mean_q95 - mean_vals],
+                               fmt='none', ecolor=color, elinewidth=1, capsize=3, alpha=0.6)
 
             # Plot std H
             ax_std.plot(test_values, std_vals, marker='o', label=label, color=color, linewidth=2, alpha=0.8)
+            ax_std.errorbar(test_values, std_vals, yerr=[std_vals - std_q05, std_q95 - std_vals],
+                            fmt='none', ecolor=color, elinewidth=1, capsize=3, alpha=0.6)
             ax_std_g.plot(test_values, std_vals, marker='o', label=label, color=color, linewidth=2, alpha=0.8)
+            ax_std_g.errorbar(test_values, std_vals, yerr=[std_vals - std_q05, std_q95 - std_vals],
+                              fmt='none', ecolor=color, elinewidth=1, capsize=3, alpha=0.6)
 
         # Finalize individual and grid labels
         for ax, ylabel, title_prefix in [

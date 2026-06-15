@@ -1,6 +1,6 @@
 {
   "global_settings": {
-    "engine_path": "/Users/nicolasbarticevic/Desktop/CareEngineAnalytics/engine/ABMServer7.jar",
+    "engine_path": "/Users/Nico/Desktop/CareEngineAnalytics/engine/ABMServer7.jar",
     "port": 8383,
     "batch_size": 100,
     "reps": 2,
