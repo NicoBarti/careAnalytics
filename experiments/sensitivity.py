@@ -24,6 +24,7 @@ def setup_output_dir(output_root):
     return run_dir
 
 def main():
+    start_time = time.time()
     parser = argparse.ArgumentParser(description="Run Sensitivity Analysis in Batches")
     parser.add_argument("--config", type=str, required=True, help="Path to config JSON file")
     parser.add_argument("--output-root", type=str, required=True, help="Root folder for experiment outputs")
@@ -123,12 +124,14 @@ def main():
     for idx, meta in enumerate(simulation_metadata):
         res = results.get(idx)
         if res is None:
-            print(f"Warning: No results found for simulation index {idx}")
+            print(f"Warning: No results found for simulation index {idx} "
+                  f"({meta['target_param']}={meta['param_value']}, policy={meta['policy']}, rep={meta['rep']})")
             continue
         
         h_data = res.get("H", [])
         if not h_data:
-            print(f"Warning: Missing 'H' state variable for index {idx}")
+            print(f"Warning: Missing 'H' state variable for index {idx} "
+                  f"({meta['target_param']}={meta['param_value']}, policy={meta['policy']}, rep={meta['rep']})")
             continue
         
         h_arr = np.array(h_data, dtype=float)
@@ -182,6 +185,7 @@ def main():
         param_df = results_df[results_df["target_param"] == target_param]
         test_values = sorted(param_df["param_value"].unique())
         param_label = param_labels.get(target_param, target_param)
+        baseline_val = baseline_parameters.get(target_param)
 
         for policy in policies:
             policy_df = param_df[param_df["policy"] == policy]
@@ -225,6 +229,25 @@ def main():
             ax_std_g.errorbar(test_values, std_vals, yerr=[std_vals - std_q05, std_q95 - std_vals],
                               fmt='none', ecolor=color, elinewidth=1, capsize=3, alpha=0.6)
 
+            # Highlight the baseline parameter value with a star if present in swept test_values
+            if baseline_val is not None:
+                idx_base = None
+                for idx_t, val in enumerate(test_values):
+                    if np.isclose(val, baseline_val):
+                        idx_base = idx_t
+                        break
+                if idx_base is not None:
+                    # Highlight on mean plots
+                    ax_mean.plot(test_values[idx_base], mean_vals[idx_base], marker='*', markersize=14,
+                                 color=color, markeredgecolor='black', zorder=5)
+                    ax_mean_g.plot(test_values[idx_base], mean_vals[idx_base], marker='*', markersize=14,
+                                   color=color, markeredgecolor='black', zorder=5)
+                    # Highlight on std plots
+                    ax_std.plot(test_values[idx_base], std_vals[idx_base], marker='*', markersize=14,
+                                color=color, markeredgecolor='black', zorder=5)
+                    ax_std_g.plot(test_values[idx_base], std_vals[idx_base], marker='*', markersize=14,
+                                  color=color, markeredgecolor='black', zorder=5)
+
         # Finalize individual and grid labels
         for ax, ylabel, title_prefix in [
             (ax_mean, 'Average Health Status', 'Mean'),
@@ -250,6 +273,8 @@ def main():
     plt.close(grid_fig_std)
 
     print("All plots generated and saved successfully.")
+    elapsed_time = time.time() - start_time
+    print(f"Total execution time: {elapsed_time:.2f} seconds ({elapsed_time / 60:.2f} minutes)")
 
 if __name__ == "__main__":
     main()

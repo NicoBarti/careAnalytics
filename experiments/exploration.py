@@ -127,6 +127,7 @@ def plot_histogram(ax, error_data, title, color, var='H', xlab="Unserved Needs",
     ax.set_ylabel(ylab, fontsize=10)
 
 def main():
+    start_time = time.time()
     parser = argparse.ArgumentParser(description="Run Detailed Model Exploration Plots")
     parser.add_argument("--config", type=str, required=True, help="Path to config JSON file")
     parser.add_argument("--output-root", type=str, required=True, help="Root folder for experiment outputs")
@@ -346,6 +347,8 @@ def main():
     
     plt.close('all')
     print("All plots saved successfully.")
+    elapsed_time = time.time() - start_time
+    print(f"Total execution time: {elapsed_time:.2f} seconds ({elapsed_time / 60:.2f} minutes)")
 
 if __name__ == "__main__":
     main()
