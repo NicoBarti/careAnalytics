@@ -12,10 +12,15 @@ Files
 
 How to Run
 ----------
+
+First, ensure you have an active virtual environment:
+cd /Users/Nico/Desktop/CareEngineAnalytics
+source exp/bin/activate
+
 Both scripts require python 3 with dependencies (pandas, numpy, matplotlib, seaborn) and can be executed using the command line:
 
 1. Sensitivity Analysis:
-   python3 experiments/sensitivity.py --config <path_to_config_json> --output-root <output_directory_root>
+   python3 /Users/Nico/Desktop/CareEngineAnalytics/experiments/sensitivity.py --config /Users/Nico/Desktop/experiments/fix_gaus_disease/sensitivity_config.json --output-root /Users/Nico/Desktop/experiments/fix_gaus_disease/outputs
 
    Example:
    python3 experiments/sensitivity.py --config experiments/sensitivity_config.json.template --output-root experiments/outputs

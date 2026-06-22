@@ -10,7 +10,7 @@
     ]
   },
   "experiment_settings": {
-    "OBS_PERIOD": 10,
+    "OBS_PERIOD": 30,
     "initial_seed": 62920828945,
     "varsigma": 300,
     "sensitivity_configs": {

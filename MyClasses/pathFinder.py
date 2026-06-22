@@ -164,7 +164,7 @@ class PathFinder:
                 simdata[seed][stateVariable].to_csv(f"{self.working_directory}/{selectionName}/{stateVariable}_{seed}_{self.OBS_PERIOD}", index=False)
 
     def produce(self, stateVariables: object, selectionName: object, seeds: object = [],
-                tweak: object = {}) -> dict[Any, Any]:
+                tweak: object = {}) -> dict:
         """For each necesary run results, retrieve them from disk, or run them from engine if not available"""
         #Todo when reading from disk, data frames contain the 'Unnamed: 0' column/(index?). When retreiving from simulation they don't.
         if len(seeds) ==0:
@@ -204,7 +204,7 @@ class PathFinder:
             seed = savedResults.iloc[savedRow]["seeds"]
             results = self.produce(stateVariables = [self.indexVar], selectionName=selection, seeds = [seed])
             finalMean = np.array(results[seed][self.indexVar])[:,-1].mean()
-            print(f"Saved final H: {savedResults.iloc[savedRow]["data"]}. Produced final H: {finalMean}")
+            print(f"Saved final H: {savedResults.iloc[savedRow]['data']}. Produced final H: {finalMean}")
 
     def find_5_traj(self, selection,stateVar, q=None, window=200):
         """Find the trajectories with percentile 0, .25, .50, .75, .100 in data for the given window

@@ -128,7 +128,7 @@ class Client:
                 d[par_name] = [float(row[par_name])]
             elif par_name in ['PROVIDER_INIT','PATIENT_INIT','pathfinder', 'obsH','obsN', 'obsC', 'obsT', 'obsE', 'obsB',
                               "obsSimpleC", "obsSimpleE", "obsSimpleB", "reproduce_line", "obsDisease", "obsExpNoise",
-                              "obsInstExp", "obsDelta", "obsPerformance", 'obsMaxExp']: ##handle boolean
+                              "obsInstExp", "obsDelta", "obsPerformance", 'obsMaxExp', 'stepPerformance']: ##handle boolean
                 d[par_name] = [(row[par_name])]
             elif par_name in ['Pi']: ##handle  strings
                 d[par_name] = [(row[par_name])]
@@ -147,7 +147,7 @@ class Client:
                     key == "obsN" or key == "obsC" or key == "obsT" or key == "obsE" or key == "obsB"
             or key == "obsSimpleB" or key == "obsSimpleC" or key == "obsSimpleE" or key == "reproduce_line"
             or key == "obsDisease" or key == "obsExpNoise" or key == 'obsInstExp' or key == 'obsDelta'
-            or key == "obsPerformance" or key == 'obsMaxExp' ):
+            or key == "obsPerformance" or key == 'obsMaxExp' or key == 'stepPerformance'):
                 if(str(enviados[key][0])).lower() != str(recividos[key]).lower():
                     print("Parametros enviados no coinciden con los recibidos")
                     print("Enviado", key, enviados[key][0])

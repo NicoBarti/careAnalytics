@@ -13,14 +13,18 @@ import seaborn as sns
 # Add project root to sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from MyClasses.client import Client
+from products.turnover.alluvial import plot_alluvial_deciles, compute_churning, compute_flow_entropy
 
 def load_config(config_path):
     with open(config_path, 'r') as f:
         return json.load(f)
 
-def setup_output_dir(output_root):
+def setup_output_dir(output_root, param_name=None, param_value=None):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    run_dir = os.path.join(output_root, f"exploration_run_{timestamp}")
+    if param_name is not None and param_value is not None:
+        run_dir = os.path.join(output_root, f"exploration_run_{param_name}_{param_value}_{timestamp}")
+    else:
+        run_dir = os.path.join(output_root, f"exploration_run_{timestamp}")
     os.makedirs(run_dir, exist_ok=True)
     return run_dir
 
@@ -131,6 +135,7 @@ def main():
     parser = argparse.ArgumentParser(description="Run Detailed Model Exploration Plots")
     parser.add_argument("--config", type=str, required=True, help="Path to config JSON file")
     parser.add_argument("--output-root", type=str, required=True, help="Root folder for experiment outputs")
+    parser.add_argument("--param-index", type=int, default=None, help="Index of parameter sweep configuration to use from sensitivity grid")
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -139,17 +144,37 @@ def main():
     experiment_settings = config["experiment_settings"]
     baseline_parameters = config["baseline_parameters"]
 
+    # 1. Parse and apply parameter override from grid if param-index is requested
+    sensitivity_configs = experiment_settings.get("sensitivity_configs")
+    selected_param = None
+    selected_val = None
+    
+    if sensitivity_configs and args.param_index is not None:
+        grid_points = []
+        for param in sorted(sensitivity_configs.keys()):
+            for val in sorted(sensitivity_configs[param]):
+                grid_points.append((param, val))
+                
+        if args.param_index < 0 or args.param_index >= len(grid_points):
+            print(f"Error: --param-index {args.param_index} is out of bounds. "
+                  f"Available indices are 0 to {len(grid_points) - 1}.")
+            return
+            
+        selected_param, selected_val = grid_points[args.param_index]
+        print(f"Selected parameter override from grid (index {args.param_index}): "
+              f"{selected_param} = {selected_val}")
+
     # Create run output directory
-    run_dir = setup_output_dir(args.output_root)
+    run_dir = setup_output_dir(args.output_root, param_name=selected_param, param_value=selected_val)
     print(f"All outputs will be saved in: {run_dir}")
 
     # Save configuration snapshot
     with open(os.path.join(run_dir, "config_snapshot.json"), "w") as f:
         json.dump(config, f, indent=4)
 
-    # 1. Load Baseline Parameters
-    schedules = experiment_settings["treatments"]
-    chosen_lambda = experiment_settings["lambda_to_run"]
+    # 2. Load Baseline Parameters
+    schedules = experiment_settings.get("treatments", list(experiment_settings.get("policy_colors", {}).keys()))
+    chosen_lambda = experiment_settings.get("lambda_to_run", 4.0)
 
     # Generate grid
     grid_rows = []
@@ -158,7 +183,11 @@ def main():
     initial_seed = experiment_settings.get("initial_seed", 62920828945)
     reps = global_settings.get("reps", 10)
     reproduce_line = global_settings.get("reproduce_line", True)
-    state_vars = global_settings["state_variables"]
+    state_vars = list(global_settings["state_variables"])
+    REQUIRED_VARS = ["H", "N", "T", "SimpleB", "stepPerformance", "MaxExp", "SimpleE", "Delta"]
+    for var in REQUIRED_VARS:
+        if var not in state_vars:
+            state_vars.append(var)
 
     print("Generating simulation grid...")
     for schedule in schedules:
@@ -170,15 +199,21 @@ def main():
             seed = int(initial_seed + rep * 1485)
             sim_params = params.copy()
             sim_params['seed'] = seed
-            sim_params['OBS_PERIOD'] = experiment_settings['OBS_PERIOD']
-            sim_params['varsigma'] = experiment_settings['varsigma']
-            sim_params['fixed_kappa'] = experiment_settings['fixed_kappa']
-            sim_params['prioritization_granularity'] = experiment_settings.get('prioritization_granularity', -1)
-            sim_params['obsPerformance'] = True
+            sim_params['OBS_PERIOD'] = experiment_settings.get('OBS_PERIOD', 30)
+            sim_params['varsigma'] = experiment_settings.get('varsigma', 300)
+            sim_params['fixed_kappa'] = experiment_settings.get('fixed_kappa', params.get('fixed_kappa', 0.5))
+            sim_params['prioritization_granularity'] = experiment_settings.get('prioritization_granularity', params.get('prioritization_granularity', -1))
+            
+            # Apply parameter index override if active
+            if selected_param is not None:
+                sim_params[selected_param] = selected_val
             
             # Enable observation flags for required state variables
             for var in state_vars:
-                sim_params[f"obs{var}"] = True
+                if var == "stepPerformance":
+                    sim_params['stepPerformance'] = True
+                else:
+                    sim_params[f"obs{var}"] = True
                 
             sim_params['PROVIDER_INIT'] = 'applyFixed'
             sim_params['PATIENT_INIT'] = 'applyFixed'
@@ -229,10 +264,19 @@ def main():
         rep = meta["rep"]
         
         rep_dict = {}
+        windows = res.get("windows", [])
+        columns = [str(w) for w in windows] if windows else None
         for var in state_vars:
             if var in res:
-                # Format as a dataframe
-                rep_dict[var] = pd.DataFrame(res[var])
+                # Format as a dataframe and assign timestep names as columns if 2D
+                val_data = res[var]
+                if isinstance(val_data, list) and len(val_data) > 0 and isinstance(val_data[0], list):
+                    if columns and len(columns) == len(val_data[0]):
+                        rep_dict[var] = pd.DataFrame(val_data, columns=columns)
+                    else:
+                        rep_dict[var] = pd.DataFrame(val_data)
+                else:
+                    rep_dict[var] = pd.DataFrame(val_data)
             else:
                 # Fallback to an empty dataframe or handle list structure
                 rep_dict[var] = pd.DataFrame()
@@ -259,7 +303,7 @@ def main():
     
     policy_colors = experiment_settings.get("policy_colors", {})
     policy_labels = experiment_settings.get("policy_labels", {})
-    bound = experiment_settings["bound"]
+    bound = experiment_settings.get("bound", 0.2857)
 
     # 4. Generate Plot Series
     print("Generating plots...")
@@ -273,13 +317,13 @@ def main():
 
         # 1. Delivery of Treatments
         try:
-            treat_data = np.array([d['Performance'].values for d in data_dict.values() if not d['Performance'].empty]).mean(axis=1)
+            treat_data = np.array([d['stepPerformance'].values.flatten() for d in data_dict.values() if not d['stepPerformance'].empty])
             treat_data[treat_data == 0] = np.nan
         except Exception:
             treat_data = np.array([np.nanmean(np.where(d['T'].values > 0, d['T'].values, np.nan), axis=0) for d in data_dict.values()])
 
         plot_temporal_series(ax=ax_delivery, data=treat_data, label=label, color=color, linestyle='solid',
-                             title='Delivery of Treatments', y_label='Average Needs Solved per Appointment')
+                             title='Delivery of Treatments', y_label='Performance per Cycle')
         ax_delivery.grid(True, linestyle=':', alpha=0.6)
 
         # 2. Progression of Diseases
@@ -327,12 +371,157 @@ def main():
         seekJacDiag = np.array([m.diagonal(offset=1) for m in seekJac])
         treatJacDiag = np.array([m.diagonal(offset=1) for m in treatJac])
         
-        plot_temporal_series(ax=ax_diagon[1], data=seekJacDiag, color=color, label=f'{label}, next cycle similarity', linestyle='solid', title='', y_label='')
-        plot_temporal_series(ax=ax_diagon[0], data=treatJacDiag, color=color, label=f'{label}, next cycle similarity', linestyle='solid', title='', y_label='')
+        plot_temporal_series(ax=ax_diagon[0], data=seekJacDiag, color=color, label=f'{label}, next cycle similarity', linestyle='solid', title='Care Seeking Similarity', y_label='\% of same patients seeking care in previous cycle')
+        plot_temporal_series(ax=ax_diagon[1], data=treatJacDiag, color=color, label=f'{label}, next cycle similarity', linestyle='solid', title='Treatment Similarity', y_label='\% of same patients receiving treatment in previous cycle')
 
         # 7. Histograms on right of mosaic (end of simulation)
         ax_idx = 'B' if schedule == 'basal' else ('R' if schedule == 'risk' else 'N')
         plot_histogram(ax=axd[ax_idx], error_data=data_dict, title=f'{label} (End)', color=color, xlab='Disease Progression', hist_label=label)
+
+    # 6. Generate Alluvial Diagrams and Flow Metrics
+    print("Generating alluvial and flow metric plots...")
+    
+    # Get available windows from one of the results
+    sample_res = next(iter(next(iter(mech_data.values())).values()))
+    windows = sample_res.get("windows", [])
+    if not windows:
+        windows = list(range(0, 301, 30))
+        
+    num_deciles = experiment_settings.get("num_deciles", 10)
+    num_observations = experiment_settings.get("num_observations", 11)
+    
+    # Select evenly spaced timesteps from available windows
+    obs_indices = np.linspace(0, len(windows) - 1, min(num_observations, len(windows)))
+    timesteps = [int(windows[int(round(idx))]) for idx in obs_indices]
+    
+    # 6.1 Alluvial Diagrams per policy
+    for schedule, data_dict in mech_data.items():
+        if not data_dict:
+            continue
+        rep_data = list(data_dict.values())[0]
+        H_df = rep_data.get('H')
+        Delta_df = rep_data.get('Delta')
+        
+        if H_df is not None and not H_df.empty:
+            output_path = os.path.join(run_dir, f"alluvial_{schedule}.png")
+            label = policy_labels.get(schedule, schedule.upper())
+            title = f"Health Deciles Alluvial Diagram (Colored by End Quantile Delta) - {label}"
+            
+            color_by_delta = Delta_df is not None and not Delta_df.empty
+            
+            plot_alluvial_deciles(
+                H_df=H_df,
+                Delta_df=Delta_df if color_by_delta else pd.DataFrame(0, index=H_df.index, columns=['0']),
+                title=title,
+                save_path=output_path,
+                num_deciles=num_deciles,
+                num_observations=len(timesteps),
+                varsigma=experiment_settings.get('varsigma', 300),
+                start_time=timesteps[0],
+                end_time=timesteps[-1],
+                color_by_delta=color_by_delta
+            )
+
+    # 6.2 Patient Churning Rates over time
+    churning_results = {}
+    for schedule, data_dict in mech_data.items():
+        if not data_dict:
+            continue
+        all_reps_rates = []
+        for rep_data in data_dict.values():
+            H_df = rep_data.get('H')
+            if H_df is not None and not H_df.empty:
+                rates = compute_churning(H_df, num_deciles, timesteps)
+                all_reps_rates.append(rates)
+        if all_reps_rates:
+            churning_results[schedule] = np.mean(all_reps_rates, axis=0)
+            
+    if churning_results:
+        transition_times = timesteps[1:]
+        plt.figure(figsize=(10, 6))
+        sns.set_theme(style="whitegrid")
+        
+        for schedule in ['basal', 'risk', 'need']:
+            if schedule not in churning_results:
+                continue
+            rates = churning_results[schedule]
+            color = policy_colors.get(schedule, "black")
+            label = policy_labels.get(schedule, schedule.upper())
+            
+            style_marker = 'o' if schedule == 'need' else ('s' if schedule == 'risk' else '^')
+            style_line = '-' if schedule == 'need' else ('--' if schedule == 'risk' else ':')
+            
+            x_vals = transition_times[:len(rates)]
+            plt.plot(x_vals, rates, label=label, color=color, 
+                     marker=style_marker, linestyle=style_line, linewidth=2,
+                     markersize=8, alpha=0.9)
+            
+        plt.title("Patient Health Deciles Churning Rate Over Time", fontsize=14, fontweight='bold', pad=15)
+        plt.xlabel("Simulation Cycle (Transition End Time)", fontsize=12, labelpad=10)
+        plt.ylabel("Churning Rate (Proportion Changing Quantile)", fontsize=12, labelpad=10)
+        plt.ylim(-0.05, 1.05)
+        plt.xticks(transition_times)
+        plt.legend(loc='best', frameon=True, facecolor='white', edgecolor='#e2e8f0', fontsize=11)
+        plt.tight_layout()
+        
+        churn_plot_path = os.path.join(run_dir, "churning_rate.png")
+        plt.savefig(churn_plot_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        print(f"Churning rate plot saved to {churn_plot_path}")
+
+    # 6.3 Shannon Entropy of Transition Flows over time
+    entropy_results = {}
+    for schedule, data_dict in mech_data.items():
+        if not data_dict:
+            continue
+        all_reps_entropies = []
+        for rep_data in data_dict.values():
+            H_df = rep_data.get('H')
+            if H_df is not None and not H_df.empty:
+                entropies = compute_flow_entropy(H_df, num_deciles, timesteps)
+                all_reps_entropies.append(entropies)
+        if all_reps_entropies:
+            entropy_results[schedule] = np.mean(all_reps_entropies, axis=0)
+            
+    if entropy_results:
+        transition_times = timesteps[1:]
+        plt.figure(figsize=(10, 6))
+        sns.set_theme(style="whitegrid")
+        
+        for schedule in ['basal', 'risk', 'need']:
+            if schedule not in entropy_results:
+                continue
+            entropies = entropy_results[schedule]
+            color = policy_colors.get(schedule, "black")
+            label = policy_labels.get(schedule, schedule.upper())
+            
+            style_marker = 'o' if schedule == 'need' else ('s' if schedule == 'risk' else '^')
+            style_line = '-' if schedule == 'need' else ('--' if schedule == 'risk' else ':')
+            
+            x_vals = transition_times[:len(entropies)]
+            plt.plot(x_vals, entropies, label=label, color=color, 
+                     marker=style_marker, linestyle=style_line, linewidth=2,
+                     markersize=8, alpha=0.9)
+            
+        # Reference lines for theoretical min/max entropy bounds
+        min_entropy = np.log2(num_deciles)
+        max_entropy = 2 * np.log2(num_deciles)
+        
+        plt.axhline(y=min_entropy, color='#cbd5e0', linestyle='--', linewidth=1.5, label='Min Theoretical Entropy (No Churn)')
+        plt.axhline(y=max_entropy, color='#feb2b2', linestyle='--', linewidth=1.5, label='Max Theoretical Entropy (Full Shuffling)')
+        
+        plt.title("Transition Flow Shannon Entropy Over Time", fontsize=14, fontweight='bold', pad=15)
+        plt.xlabel("Simulation Cycle (Transition End Time)", fontsize=12, labelpad=10)
+        plt.ylabel("Shannon Entropy (Bits)", fontsize=12, labelpad=10)
+        plt.ylim(min_entropy - 0.2, max_entropy + 0.2)
+        plt.xticks(transition_times)
+        plt.legend(loc='best', frameon=True, facecolor='white', edgecolor='#e2e8f0', fontsize=10)
+        plt.tight_layout()
+        
+        entropy_plot_path = os.path.join(run_dir, "flow_entropy.png")
+        plt.savefig(entropy_plot_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        print(f"Flow entropy plot saved to {entropy_plot_path}")
 
     # 5. Finalize Figures and Save
     print(f"Saving exploration plots to: {run_dir}")
