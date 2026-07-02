@@ -80,11 +80,17 @@ def compute_jaccard(data_dict, state_var):
         all_matrices.append(jaccard_matrix)
     return np.array(all_matrices)
 
-def compute_vicinity(data_dict, state_var, behaviour):
-    all_vicinities = []
-    for simulation in data_dict.values():
-        df_var = simulation[state_var]
-        size = df_var.shape[1]
+def compute_vicinity(data_dict, state_var, behaviour, all_replicates=False):
+    """Computes average state variable based on patient behaviour mask.
+    
+    Args:
+        data_dict (dict): Dictionary of simulation runs.
+        state_var (str): The state variable to analyze.
+        behaviour (str): "seekers" or "treated" to define the mask.
+        all_replicates (bool): If True, averages over all replicates. If False, uses only the first.
+    """
+    def _get_vicinity(simulation):
+        size = simulation[state_var].shape[1]
         matrix = np.empty((0, size))
         for windowA in range(size):
             if behaviour == "seekers":
@@ -92,11 +98,16 @@ def compute_vicinity(data_dict, state_var, behaviour):
             elif behaviour == "treated":
                 mask = simulation['T'].iloc[:, windowA] == 0
             else:
-                mask = pd.Series([False] * df_var.shape[0])
+                mask = pd.Series([False] * simulation[state_var].shape[0])
 
-            vicinity = df_var.mask(mask, other=np.nan).mean(axis=0)
+            vicinity = simulation[state_var].mask(mask, other=np.nan).mean(axis=0)
             matrix = np.concatenate((matrix, np.array([vicinity])), axis=0)
-        all_vicinities.append(matrix)
+        return matrix
+
+    if not all_replicates:
+        return _get_vicinity(data_dict[next(iter(data_dict))])
+
+    all_vicinities = [_get_vicinity(sim) for sim in data_dict.values()]
     return np.array(all_vicinities)
 
 # --- PLOTTING HELPERS ---
@@ -115,16 +126,21 @@ def plot_temporal_series(ax, data, label, color, linestyle, y_label, title=None,
     if maxy: ax.set_ylim(top=maxy)
     ax.legend(fontsize=8)
 
-def plot_histogram(ax, error_data, title, color, var='H', xlab="Unserved Needs", ylab="Patients", hist_label=None):
+def plot_histogram(ax, error_data, title, color, var='H', xlab="Unserved Needs", ylab="Patients", hist_label=None, bins=20, draw_deciles=False):
     final_h = np.array([d[var].iloc[:, -1] for d in error_data.values()])
-    counts_list = [np.histogram(row, bins=20)[0] for row in final_h]
+    counts_list = [np.histogram(row, bins=bins)[0] for row in final_h]
     mean_counts = np.mean(counts_list, axis=0)
     quantiles = np.quantile(counts_list, q=[0.05, 0.95], axis=0)
-    edges = np.histogram(final_h[0], bins=20)[1]
+    edges = np.histogram(final_h[0], bins=bins)[1]
 
     midbin = (edges[1] - edges[0]) / 2
     ax.stairs(mean_counts, edges, fill=True, color=color, label=hist_label)
     ax.errorbar(edges[:-1] + midbin, mean_counts, yerr=np.abs(quantiles - mean_counts), fmt='.', color='black')
+
+    if draw_deciles:
+        deciles = np.percentile(final_h.flatten(), np.arange(10, 100, 10))
+        for idx, dec in enumerate(deciles):
+            ax.axvline(x=dec, color='red', linestyle='--', linewidth=1.2, alpha=0.6, label='Decile' if idx == 0 else "")
 
     ax.set_title(title, fontsize=10)
     ax.set_xlabel(xlab, fontsize=10)
@@ -134,7 +150,7 @@ def main():
     start_time = time.time()
     parser = argparse.ArgumentParser(description="Run Detailed Model Exploration Plots")
     parser.add_argument("--config", type=str, required=True, help="Path to config JSON file")
-    parser.add_argument("--output-root", type=str, required=True, help="Root folder for experiment outputs")
+    parser.add_argument("--output-root", type=str, default=None, help="Root folder for experiment outputs")
     parser.add_argument("--param-index", type=int, default=None, help="Index of parameter sweep configuration to use from sensitivity grid")
     args = parser.parse_args()
 
@@ -164,8 +180,13 @@ def main():
         print(f"Selected parameter override from grid (index {args.param_index}): "
               f"{selected_param} = {selected_val}")
 
+    # Resolve output directory 
+    output_root = args.output_root
+    if output_root is None:
+        output_root = os.path.dirname(os.path.abspath(args.config))
+
     # Create run output directory
-    run_dir = setup_output_dir(args.output_root, param_name=selected_param, param_value=selected_val)
+    run_dir = setup_output_dir(output_root, param_name=selected_param, param_value=selected_val)
     print(f"All outputs will be saved in: {run_dir}")
 
     # Save configuration snapshot
@@ -184,7 +205,7 @@ def main():
     reps = global_settings.get("reps", 10)
     reproduce_line = global_settings.get("reproduce_line", True)
     state_vars = list(global_settings["state_variables"])
-    REQUIRED_VARS = ["H", "N", "T", "SimpleB", "stepPerformance", "MaxExp", "SimpleE", "Delta"]
+    REQUIRED_VARS = ["H", "N", "T", "SimpleB", "stepPerformance", "MaxExp", "SimpleE", "Delta", "SimpleC", "Disease", "ExpNoise"]
     for var in REQUIRED_VARS:
         if var not in state_vars:
             state_vars.append(var)
@@ -249,11 +270,30 @@ def main():
         )
     except Exception as e:
         print(f"Error executing simulations batch: {e}")
-        return
+        # Include fallback if connection with server fails and engine_path contains users/Nico
+        if "/users/Nico" in engine_path or "/Users/Nico" in engine_path:
+            fallback_engine_path = engine_path.replace("/users/Nico", "/Users/nicolasbarticevic").replace("/Users/Nico", "/Users/nicolasbarticevic")
+            print(f"Retrying with fallback engine path: {fallback_engine_path}...")
+            c = Client(PORT=port, ENGINE_PATH=fallback_engine_path)
+            c.start_server()
+            try:
+                print("Sending simulations batch to server (retry)...")
+                results = c.socket_with_model_paramGrid_2(
+                    gridParameters=grid_df,
+                    PORT=port,
+                    ComputeErrors=1,
+                    batch_size=global_settings.get("batch_size", 100)
+                )
+            except Exception as e_retry:
+                print(f"Error executing simulations batch on retry: {e_retry}")
+                return
+        else:
+            return
 
     # Process and restructure results to match legacy format
     # Legacy format: mech_data[schedule][rep] = dict containing variables as DataFrames
     mech_data = {s: {} for s in schedules}
+    windows = []
     
     for idx, meta in enumerate(simulation_metadata):
         res = results.get(idx)
@@ -283,257 +323,83 @@ def main():
         
         mech_data[schedule][rep] = rep_dict
 
-    # 3. Setup Figures
-    fig_delivery, ax_delivery = plt.subplots(figsize=(12, 7))
-    fig_health, ax_health = plt.subplots(figsize=(12, 7))
-    fig_seeking, ax_seeking = plt.subplots(figsize=(12, 7))
-    fig_exp_corr, ax_exp_corr = plt.subplots(nrows=1, ncols=2, figsize=(18, 7))
-    fig_diagon, ax_diagon = plt.subplots(nrows=1, ncols=2, figsize=(18, 7))
-    fig_focus, ax_focus = plt.subplots(figsize=(18, 7))
-    
-    fig_mosaic = plt.figure(layout="constrained", figsize=(12, 7))
-    axd = fig_mosaic.subplot_mosaic(
-        """
-        LB
-        LR
-        LN
-        """,
-        gridspec_kw=dict(width_ratios=[1.3, 1])
-    )
-    
-    policy_colors = experiment_settings.get("policy_colors", {})
-    policy_labels = experiment_settings.get("policy_labels", {})
-    bound = experiment_settings.get("bound", 0.2857)
+    # Resolve windows and target cycles for row grid
+    if not windows:
+        for s in schedules:
+            if s in mech_data and mech_data[s]:
+                first_rep = next(iter(mech_data[s].values()))
+                if 'H' in first_rep and not first_rep['H'].empty:
+                    windows = [int(c) for c in first_rep['H'].columns]
+                    break
+    if not windows:
+        windows = list(range(0, 301, 30))
 
-    # 4. Generate Plot Series
-    print("Generating plots...")
+    target_cycles = [5, 60, 170]
+    row_indices = []
+    for target in target_cycles:
+        closest_idx = int(np.argmin([abs(int(w) - target) for w in windows]))
+        row_indices.append(closest_idx)
+    row_indices = sorted(list(set(row_indices)))
+    while len(row_indices) < 3:
+        for i in range(len(windows)):
+            if i not in row_indices:
+                row_indices.append(i)
+                row_indices = sorted(row_indices)
+                break
+
+    # 3. Setup Figures and Generate Complex Mosaic Plots
+    print("Generating Complex Mosaic Plots...")
+    from products.outcomesMatrix.complex_plotter import complexAxeDict, populate_axe
+
+    policy_labels = experiment_settings.get("policy_labels", {})
+
     for schedule in schedules:
         if schedule not in mech_data or not mech_data[schedule]:
             continue
         
-        color = policy_colors.get(schedule, "black")
+        reps_list = list(mech_data[schedule].keys())
+        if not reps_list:
+            continue
+
         label = policy_labels.get(schedule, schedule.upper())
-        data_dict = mech_data[schedule]
+        print(f"Generating Complex Mosaic Plot for {label}...")
 
-        # 1. Delivery of Treatments
-        try:
-            treat_data = np.array([d['stepPerformance'].values.flatten() for d in data_dict.values() if not d['stepPerformance'].empty])
-            treat_data[treat_data == 0] = np.nan
-        except Exception:
-            treat_data = np.array([np.nanmean(np.where(d['T'].values > 0, d['T'].values, np.nan), axis=0) for d in data_dict.values()])
+        # Combine results across all replications by concatenating patient rows
+        combined_dd = {}
+        for var in state_vars:
+            # Map MaxExp to E as expected by complex_plotter
+            target_var = 'E' if var == 'MaxExp' else var
+            rep_dfs = []
+            for rep in reps_list:
+                if var in mech_data[schedule][rep]:
+                    df = mech_data[schedule][rep][var]
+                    if not df.empty:
+                        rep_dfs.append(df)
+            if rep_dfs:
+                combined_dd[target_var] = pd.concat(rep_dfs, axis=0, ignore_index=True)
+            else:
+                combined_dd[target_var] = pd.DataFrame()
 
-        plot_temporal_series(ax=ax_delivery, data=treat_data, label=label, color=color, linestyle='solid',
-                             title='Delivery of Treatments', y_label='Performance per Cycle')
-        ax_delivery.grid(True, linestyle=':', alpha=0.6)
+        # Generate the Complex Mosaic Plot
+        last_col = combined_dd['H'].columns[-1]
+        allData = np.quantile(np.array(combined_dd['H'][last_col]), q=[1])[0]
 
-        # 2. Progression of Diseases
-        health_data = np.array([d['H'].values for d in data_dict.values()]).mean(axis=1)
-        plot_temporal_series(ax=ax_health, data=health_data, label=label, color=color, linestyle='solid',
-                             title='Progression of Diseases', y_label='Average Health Problems per Patient')
-        
-        plot_temporal_series(ax=axd['L'], data=health_data, label=label, color=color, linestyle='solid',
-                             title='Progression of Diseases', y_label='Average Health Problems per Patient')
+        axd = complexAxeDict()
+        fig = plt.gcf()
 
-        # 3. Care Seeking Behaviour
-        seeking_data = care_seeking(data_dict)
-        plot_temporal_series(ax=ax_seeking, data=seeking_data, label=label, color=color, linestyle='solid',
-                             title='Care Seeking Behaviour', y_label='Proportion of the Population Seeking Care')
+        # Create sub_title displaying policy label and simulation parameters
+        sub_title = f"Policy: {label} | Replications: {len(reps_list)} | Cycles: {last_col}"
+        populate_axe(axd, dd=combined_dd, low_h_cut=0, high_h_cut=allData, sub_title=sub_title)
 
-        # 4. Expectations
-        exp_lower = get_average_Exp_bound(data_dict, bound, lower=True)
-        plot_temporal_series(ax=ax_exp_corr[1], data=exp_lower, label=f'{label}, mean expectations (lower need)', color=color,
-                             linestyle='solid', title='Expectations in Lower Needs Patients',
-                             y_label=f'Mean Expectations in the lower {bound:.2f} Needs Quantile')
-        
-        corrMaxExp = corrExp_Health(data_dict, expectationType='MaxExp')
-        plot_temporal_series(ax=ax_exp_corr[0], data=np.array(corrMaxExp), label=f'{label}, correlation between expectations and needs', color=color, linestyle='solid',
-                             title='Correlation between Expectations and Needs at the Population Level', y_label='Pearson correlation of Needs and Expectations')
+        fig.suptitle(f"Complex Mosaic Plot - {label}", fontsize=40, y=0.98)
 
-        # 5. Focus Needs
-        AllNeed = np.array([d['N'].values for d in data_dict.values()])
-        AllTreat = np.array([d['T'].values for d in data_dict.values()])
-        TreatmentNeed = np.where(AllTreat > 0, AllNeed, np.nan)
-        q5, q25, q50, q75, q95 = np.nanquantile(TreatmentNeed, q=[0.05, 0.25, 0.5, 0.75, 0.95], axis=1)
-        xs = np.arange(q25.shape[1])
-        alpha = 0.4 if schedule == 'need' else 0.2
-        ax_focus.fill_between(xs, q25.mean(0), q75.mean(0), color=color, alpha=alpha, label=f'{label}, Needs Median and IQR')
-        ax_focus.plot(xs, q25.mean(0), color=color, linestyle='--', linewidth=1, alpha=0.8)
-        ax_focus.plot(xs, q75.mean(0), color=color, linestyle='--', linewidth=1, alpha=0.8)
-        ax_focus.plot(xs, q50.mean(0), color=color, linestyle='solid', linewidth=1.5, alpha=1)
-        ax_focus.plot(xs, q5.mean(0), color=color, linestyle='dotted', linewidth=1, alpha=0.8)
-        ax_focus.plot(xs, q95.mean(0), color=color, linestyle='dotted', linewidth=1, alpha=0.8)
+        # Save the figure
+        mosaic_path = os.path.join(run_dir, f"complex_mosaic_{schedule}.png")
+        fig.savefig(mosaic_path, dpi=300)
+        plt.close(fig)
+        print(f"Complex Mosaic Plot for {label} saved to {mosaic_path}")
 
-        # 6. Jaccard next cycle similarity
-        seekJac = np.array(compute_jaccard(data_dict, 'SimpleB'))
-        treatJac = np.array(compute_jaccard(data_dict, 'T'))
-        
-        # diagonal offset 1 average across reps
-        seekJacDiag = np.array([m.diagonal(offset=1) for m in seekJac])
-        treatJacDiag = np.array([m.diagonal(offset=1) for m in treatJac])
-        
-        plot_temporal_series(ax=ax_diagon[0], data=seekJacDiag, color=color, label=f'{label}, next cycle similarity', linestyle='solid', title='Care Seeking Similarity', y_label='\% of same patients seeking care in previous cycle')
-        plot_temporal_series(ax=ax_diagon[1], data=treatJacDiag, color=color, label=f'{label}, next cycle similarity', linestyle='solid', title='Treatment Similarity', y_label='\% of same patients receiving treatment in previous cycle')
-
-        # 7. Histograms on right of mosaic (end of simulation)
-        ax_idx = 'B' if schedule == 'basal' else ('R' if schedule == 'risk' else 'N')
-        plot_histogram(ax=axd[ax_idx], error_data=data_dict, title=f'{label} (End)', color=color, xlab='Disease Progression', hist_label=label)
-
-    # 6. Generate Alluvial Diagrams and Flow Metrics
-    print("Generating alluvial and flow metric plots...")
-    
-    # Get available windows from one of the results
-    sample_res = next(iter(next(iter(mech_data.values())).values()))
-    windows = sample_res.get("windows", [])
-    if not windows:
-        windows = list(range(0, 301, 30))
-        
-    num_deciles = experiment_settings.get("num_deciles", 10)
-    num_observations = experiment_settings.get("num_observations", 11)
-    
-    # Select evenly spaced timesteps from available windows
-    obs_indices = np.linspace(0, len(windows) - 1, min(num_observations, len(windows)))
-    timesteps = [int(windows[int(round(idx))]) for idx in obs_indices]
-    
-    # 6.1 Alluvial Diagrams per policy
-    for schedule, data_dict in mech_data.items():
-        if not data_dict:
-            continue
-        rep_data = list(data_dict.values())[0]
-        H_df = rep_data.get('H')
-        Delta_df = rep_data.get('Delta')
-        
-        if H_df is not None and not H_df.empty:
-            output_path = os.path.join(run_dir, f"alluvial_{schedule}.png")
-            label = policy_labels.get(schedule, schedule.upper())
-            title = f"Health Deciles Alluvial Diagram (Colored by End Quantile Delta) - {label}"
-            
-            color_by_delta = Delta_df is not None and not Delta_df.empty
-            
-            plot_alluvial_deciles(
-                H_df=H_df,
-                Delta_df=Delta_df if color_by_delta else pd.DataFrame(0, index=H_df.index, columns=['0']),
-                title=title,
-                save_path=output_path,
-                num_deciles=num_deciles,
-                num_observations=len(timesteps),
-                varsigma=experiment_settings.get('varsigma', 300),
-                start_time=timesteps[0],
-                end_time=timesteps[-1],
-                color_by_delta=color_by_delta
-            )
-
-    # 6.2 Patient Churning Rates over time
-    churning_results = {}
-    for schedule, data_dict in mech_data.items():
-        if not data_dict:
-            continue
-        all_reps_rates = []
-        for rep_data in data_dict.values():
-            H_df = rep_data.get('H')
-            if H_df is not None and not H_df.empty:
-                rates = compute_churning(H_df, num_deciles, timesteps)
-                all_reps_rates.append(rates)
-        if all_reps_rates:
-            churning_results[schedule] = np.mean(all_reps_rates, axis=0)
-            
-    if churning_results:
-        transition_times = timesteps[1:]
-        plt.figure(figsize=(10, 6))
-        sns.set_theme(style="whitegrid")
-        
-        for schedule in ['basal', 'risk', 'need']:
-            if schedule not in churning_results:
-                continue
-            rates = churning_results[schedule]
-            color = policy_colors.get(schedule, "black")
-            label = policy_labels.get(schedule, schedule.upper())
-            
-            style_marker = 'o' if schedule == 'need' else ('s' if schedule == 'risk' else '^')
-            style_line = '-' if schedule == 'need' else ('--' if schedule == 'risk' else ':')
-            
-            x_vals = transition_times[:len(rates)]
-            plt.plot(x_vals, rates, label=label, color=color, 
-                     marker=style_marker, linestyle=style_line, linewidth=2,
-                     markersize=8, alpha=0.9)
-            
-        plt.title("Patient Health Deciles Churning Rate Over Time", fontsize=14, fontweight='bold', pad=15)
-        plt.xlabel("Simulation Cycle (Transition End Time)", fontsize=12, labelpad=10)
-        plt.ylabel("Churning Rate (Proportion Changing Quantile)", fontsize=12, labelpad=10)
-        plt.ylim(-0.05, 1.05)
-        plt.xticks(transition_times)
-        plt.legend(loc='best', frameon=True, facecolor='white', edgecolor='#e2e8f0', fontsize=11)
-        plt.tight_layout()
-        
-        churn_plot_path = os.path.join(run_dir, "churning_rate.png")
-        plt.savefig(churn_plot_path, dpi=300, bbox_inches='tight')
-        plt.close()
-        print(f"Churning rate plot saved to {churn_plot_path}")
-
-    # 6.3 Shannon Entropy of Transition Flows over time
-    entropy_results = {}
-    for schedule, data_dict in mech_data.items():
-        if not data_dict:
-            continue
-        all_reps_entropies = []
-        for rep_data in data_dict.values():
-            H_df = rep_data.get('H')
-            if H_df is not None and not H_df.empty:
-                entropies = compute_flow_entropy(H_df, num_deciles, timesteps)
-                all_reps_entropies.append(entropies)
-        if all_reps_entropies:
-            entropy_results[schedule] = np.mean(all_reps_entropies, axis=0)
-            
-    if entropy_results:
-        transition_times = timesteps[1:]
-        plt.figure(figsize=(10, 6))
-        sns.set_theme(style="whitegrid")
-        
-        for schedule in ['basal', 'risk', 'need']:
-            if schedule not in entropy_results:
-                continue
-            entropies = entropy_results[schedule]
-            color = policy_colors.get(schedule, "black")
-            label = policy_labels.get(schedule, schedule.upper())
-            
-            style_marker = 'o' if schedule == 'need' else ('s' if schedule == 'risk' else '^')
-            style_line = '-' if schedule == 'need' else ('--' if schedule == 'risk' else ':')
-            
-            x_vals = transition_times[:len(entropies)]
-            plt.plot(x_vals, entropies, label=label, color=color, 
-                     marker=style_marker, linestyle=style_line, linewidth=2,
-                     markersize=8, alpha=0.9)
-            
-        # Reference lines for theoretical min/max entropy bounds
-        min_entropy = np.log2(num_deciles)
-        max_entropy = 2 * np.log2(num_deciles)
-        
-        plt.axhline(y=min_entropy, color='#cbd5e0', linestyle='--', linewidth=1.5, label='Min Theoretical Entropy (No Churn)')
-        plt.axhline(y=max_entropy, color='#feb2b2', linestyle='--', linewidth=1.5, label='Max Theoretical Entropy (Full Shuffling)')
-        
-        plt.title("Transition Flow Shannon Entropy Over Time", fontsize=14, fontweight='bold', pad=15)
-        plt.xlabel("Simulation Cycle (Transition End Time)", fontsize=12, labelpad=10)
-        plt.ylabel("Shannon Entropy (Bits)", fontsize=12, labelpad=10)
-        plt.ylim(min_entropy - 0.2, max_entropy + 0.2)
-        plt.xticks(transition_times)
-        plt.legend(loc='best', frameon=True, facecolor='white', edgecolor='#e2e8f0', fontsize=10)
-        plt.tight_layout()
-        
-        entropy_plot_path = os.path.join(run_dir, "flow_entropy.png")
-        plt.savefig(entropy_plot_path, dpi=300, bbox_inches='tight')
-        plt.close()
-        print(f"Flow entropy plot saved to {entropy_plot_path}")
-
-    # 5. Finalize Figures and Save
-    print(f"Saving exploration plots to: {run_dir}")
-    
-    fig_delivery.savefig(os.path.join(run_dir, 'delivery.png'), dpi=300)
-    fig_health.savefig(os.path.join(run_dir, 'health.png'), dpi=300)
-    fig_seeking.savefig(os.path.join(run_dir, 'seeking.png'), dpi=300)
-    fig_exp_corr.savefig(os.path.join(run_dir, 'expectations_correlations.png'), dpi=300)
-    fig_diagon.savefig(os.path.join(run_dir, 'diagonals.png'), dpi=300)
-    fig_focus.savefig(os.path.join(run_dir, 'focus.png'), dpi=300)
-    fig_mosaic.savefig(os.path.join(run_dir, 'mosaic.png'), dpi=300)
-    
+    # 4. Cleanup
     plt.close('all')
     print("All plots saved successfully.")
     elapsed_time = time.time() - start_time

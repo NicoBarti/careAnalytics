@@ -28,7 +28,7 @@ def main():
     start_time = time.time()
     parser = argparse.ArgumentParser(description="Run Sensitivity Analysis in Batches")
     parser.add_argument("--config", type=str, required=True, help="Path to config JSON file")
-    parser.add_argument("--output-root", type=str, required=True, help="Root folder for experiment outputs")
+    parser.add_argument("--output-root", type=str, default=None, help="Root folder for experiment outputs")
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -37,8 +37,13 @@ def main():
     experiment_settings = config["experiment_settings"]
     baseline_parameters = config["baseline_parameters"]
 
+    # Resolve output directory
+    output_root = args.output_root
+    if output_root is None:
+        output_root = os.path.dirname(os.path.abspath(args.config))
+
     # Create run output directory
-    run_dir = setup_output_dir(args.output_root)
+    run_dir = setup_output_dir(output_root)
     print(f"All outputs will be saved in: {run_dir}")
 
     # Save configuration snapshot to output directory
@@ -125,7 +130,25 @@ def main():
         )
     except Exception as e:
         print(f"Error executing simulations batch: {e}")
-        return
+        # Include fallback if connection with server fails and engine_path contains users/Nico
+        if "/users/Nico" in engine_path or "/Users/Nico" in engine_path:
+            fallback_engine_path = engine_path.replace("/users/Nico", "/Users/nicolasbarticevic").replace("/Users/Nico", "/Users/nicolasbarticevic")
+            print(f"Retrying with fallback engine path: {fallback_engine_path}...")
+            c = Client(PORT=port, ENGINE_PATH=fallback_engine_path)
+            c.start_server()
+            try:
+                print("Sending simulations batch to server (retry)...")
+                results = c.socket_with_model_paramGrid_2(
+                    gridParameters=grid_df,
+                    PORT=port,
+                    ComputeErrors=1,
+                    batch_size=global_settings.get("batch_size", 100)
+                )
+            except Exception as e_retry:
+                print(f"Error executing simulations batch on retry: {e_retry}")
+                return
+        else:
+            return
     
     # 3. Process and Aggregate Results
     print("Processing results...")

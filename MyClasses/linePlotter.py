@@ -38,7 +38,8 @@ class LinePlotter:
             internalDic[key] = lineParams[key].round(2) if type(lineParams[key]) != str else lineParams[key]
             counter += 1
             if counter == paramsPerLine or key == thisParams[-1]:
-                paramList = f'{paramList} {pd.Series(internalDic, dtype='str').to_string().replace("\n", "  ; ").replace("      ", " ").replace("_", " ")} \n'
+                s_str = pd.Series(internalDic, dtype='str').to_string().replace('\n', '  ; ').replace('      ', ' ').replace('_', ' ')
+                paramList = f"{paramList} {s_str} \n"
                 internalDic = {}
                 counter = 0
         return paramList

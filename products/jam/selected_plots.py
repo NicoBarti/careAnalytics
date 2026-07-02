@@ -17,8 +17,8 @@ from products.jam.readingGroup import compute_jaccard, compute_vicinity
 # --- SETTINGS ---
 SETTINGS = {
     'engine_path': '/Users/Nico/Desktop/CareEngineAnalytics/engine/ABMServer7.jar',
-    'base_working_dir': '/Users/Nico/Desktop/simulationOutputs/Hetero_Disease_Exp_granularity/',
-    'treatments': ['need', 'risk', 'basal'],
+    'base_working_dir': '/Users/Nico/Desktop/simulationOutputs/forWorkshopNoRisk/',
+    'treatments': ['need', 'basal'],
     'reps': 10,
     'state_variables': ['H', 'N', 'T', 'SimpleB', 'Performance', 'MaxExp', 'SimpleE'],
     'cmap': mpl.colormaps['plasma'],
@@ -28,8 +28,8 @@ SETTINGS = {
     'lambda_to_run': 4.0,
     'bound': 1000/3500, # = 1000 patients for N = 3500, so its the top or bottom 1000
 
-    'subDir': 'prioritization_granularity_1', #
-    'prioritization_granularity': 1,
+    'subDir': 'noPriorityGranularity', #
+    'prioritization_granularity': -1,
     'fixed_kappa': 0.1,  # change accordingly to subDir
 
     'varsigma': 300,

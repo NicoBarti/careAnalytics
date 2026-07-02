@@ -15,8 +15,9 @@ def waterMark(k:str)->str:
 
 def proportionC(data: pd.DataFrame, low_h_cut: float, high_h_cut:float) -> pd.Series:
     """Compute the proportion of patients who got appointment from the total asking for appointments."""
-    C = data['SimpleC'].loc[(data['H']['100'] <= high_h_cut) & (data['H']['100'] >= low_h_cut)]
-    B = data['SimpleB'].loc[(data['H']['100'] <= high_h_cut) & (data['H']['100'] >= low_h_cut)]
+    last_col = data['H'].columns[-1]
+    C = data['SimpleC'].loc[(data['H'][last_col] <= high_h_cut) & (data['H'][last_col] >= low_h_cut)]
+    B = data['SimpleB'].loc[(data['H'][last_col] <= high_h_cut) & (data['H'][last_col] >= low_h_cut)]
     return C.mask(cond=B!=1)
 
 def onePlot(ax: mpl.axes.Axes,dd: pd.DataFrame, plotVariable: str, color: str, low_h_cut: float = None, high_h_cut:float = None,
@@ -24,7 +25,8 @@ def onePlot(ax: mpl.axes.Axes,dd: pd.DataFrame, plotVariable: str, color: str, l
     """Plots a single data trajectory onto a given axis."""
     #ExtractPlotData
     if plotData is None:
-        plotData = dd[plotVariable.strip('_diff').strip('_cum')].loc[(dd['H']['100'] <= high_h_cut) & (dd['H']['100'] >= low_h_cut )] \
+        last_col = dd['H'].columns[-1]
+        plotData = dd[plotVariable.strip('_diff').strip('_cum')].loc[(dd['H'][last_col] <= high_h_cut) & (dd['H'][last_col] >= low_h_cut )] \
         if plotVariable not in ['c'] else proportionC(data=dd, low_h_cut=low_h_cut, high_h_cut=high_h_cut)
     #Comput diff or cum if needed
     plotData = plotData.diff(axis=1) if '_diff' in plotVariable else plotData
@@ -147,6 +149,7 @@ def populate_axe(ax_dict: dict, dd: pd.DataFrame, low_h_cut: float = None, high_
 
         # Subtitle
         if k == 's':
-            decile_size = dd['H'].loc[(dd['H']['100'] <= high_h_cut) & (dd['H']['100'] >= low_h_cut)].shape[0]
+            last_col = dd['H'].columns[-1]
+            decile_size = dd['H'].loc[(dd['H'][last_col] <= high_h_cut) & (dd['H'][last_col] >= low_h_cut)].shape[0]
             ax.set_title(f'Decile size = {decile_size} {sub_title}', fontsize=subtitleSize)
             ax.set_axis_off()

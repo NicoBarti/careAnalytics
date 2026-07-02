@@ -5,10 +5,6 @@ import numpy as np
 from matplotlib.figure import Figure
 
 from MyClasses.pathFinder import PathFinder
-from scipy.spatial import distance_matrix
-from scipy.spatial.distance import cosine
-
-from scipy.signal import convolve2d
 
 
 
@@ -230,6 +226,7 @@ class TrajectoryDistances(PathFinder):
 
     def cosineMatrix(self):
         """Return a cosing simmilarity matrix"""
+        from scipy.spatial.distance import cosine
 
         matrix = np.empty((len(self.vectors), len(self.vectors)))
         for a in range(len(self.vectors)):
@@ -256,6 +253,7 @@ class TrajectoryDistances(PathFinder):
         """Create a distance matrix for all the lines in the selction in ascending oreder"""
         #vectors = self.orderedVectors()
         if self.matrixType == "distance":
+            from scipy.spatial import distance_matrix
             orderedDistancesMatrix = distance_matrix(self.vectors, self.vectors, p = 2)
         if self.matrixType == "cosine":
             orderedDistancesMatrix = self.cosineMatrix()
@@ -263,6 +261,7 @@ class TrajectoryDistances(PathFinder):
 
     def downSampledMatrix(self):
         """Run a convolution using a grain x grain kernel and retun the averages"""
+        from scipy.signal import convolve2d
         original_matrix = self.orderedDistanceMatrix()
         kernel = np.ones((self.grain, self.grain))
         convolved = convolve2d(original_matrix, kernel, mode='valid')

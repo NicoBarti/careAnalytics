@@ -31,8 +31,7 @@ SETTINGS = {
 
 def generate_error_data(params, reps, state_vars, initial_seed, work_dir, engine_path, treatment):
     """Generates simulation data for error bars by running multiple replicates."""
-    # Filter out False parameters
-    valid_params = {k: v for k, v in params.items() if v != False}
+    valid_params = {k: v for k, v in params.items() if v is not False}
     
     # Create simulation index
     seeds = [int(initial_seed + i * 1485) for i in range(reps)]

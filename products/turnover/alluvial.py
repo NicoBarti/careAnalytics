@@ -58,6 +58,7 @@ SETTINGS = {
     'end_time': None,
     'color_by_delta': True,
     'prioritization_granularity': 1,
+    'orientation': 'horizontal',
 }
 
 def process_simulation(params, settings, selection_name, state_vars_override=None):
@@ -139,8 +140,14 @@ def compute_flow_entropy(H_df, num_deciles, timesteps):
     Formula: H = -sum_{A,B} p_{AB} * log2(p_{AB})
     where p_{AB} is the fraction of total patients transitioning from category A to B.
     """
+    
+    # Theoretical min/max entropy bounds
+    #min_entropy = np.log2(num_deciles)
+    #max_entropy = 2 * np.log2(num_deciles)
+
     N = len(H_df)
     deciles = {}
+    #Here the deciles are computed:
     for t in timesteps:
         col = str(t)
         if col not in H_df.columns:
@@ -205,7 +212,7 @@ def compute_sum_entropy_and_churning(H_df, num_deciles, timesteps):
     return sum(entropy_values), sum(churning_rates)
 
 
-def plot_alluvial_deciles(H_df, Delta_df, title, save_path, num_deciles=10, num_observations=11, varsigma=300, start_time=None, end_time=None, color_by_delta=False):
+def plot_alluvial_deciles(H_df, Delta_df, title, save_path, num_deciles=10, num_observations=11, varsigma=300, start_time=None, end_time=None, color_by_delta=False, orientation='horizontal'):
     """
     Plots a clean decile alluvial diagram of H over time, using uniform coloring or Delta coloring.
     """
@@ -274,14 +281,24 @@ def plot_alluvial_deciles(H_df, Delta_df, title, save_path, num_deciles=10, num_
             else:
                 rect_color = block_color
                 
-            rect = plt.Rectangle((t_idx - 0.15, d * slot_height + gap / 2.0), 0.3, decile_height,
-                                 facecolor=rect_color, edgecolor='black', linewidth=1, alpha=0.9, zorder=3)
+            if orientation == 'horizontal':
+                rect = plt.Rectangle((t_idx - 0.15, d * slot_height + gap / 2.0), 0.3, decile_height,
+                                     facecolor=rect_color, edgecolor='black', linewidth=1, alpha=0.9, zorder=3)
+            else:
+                rect = plt.Rectangle((d * slot_height + gap / 2.0, t_idx - 0.15), decile_height, 0.3,
+                                     facecolor=rect_color, edgecolor='black', linewidth=1, alpha=0.9, zorder=3)
             ax.add_patch(rect)
             
-            if t_idx == 0:
-                ax.text(t_idx - 0.2, d * slot_height + slot_height / 2.0, f"{label_prefix}{d+1}", ha='right', va='center', fontsize=10, fontweight='bold', color='black')
-            elif t_idx == len(timesteps) - 1:
-                ax.text(t_idx + 0.2, d * slot_height + slot_height / 2.0, f"{label_prefix}{d+1}", ha='left', va='center', fontsize=10, fontweight='bold', color='black')
+            if orientation == 'horizontal':
+                if t_idx == 0:
+                    ax.text(t_idx - 0.2, d * slot_height + slot_height / 2.0, f"{label_prefix}{d+1}", ha='right', va='center', fontsize=10, fontweight='bold', color='black')
+                elif t_idx == len(timesteps) - 1:
+                    ax.text(t_idx + 0.2, d * slot_height + slot_height / 2.0, f"{label_prefix}{d+1}", ha='left', va='center', fontsize=10, fontweight='bold', color='black')
+            else:
+                if t_idx == 0:
+                    ax.text(d * slot_height + slot_height / 2.0, t_idx - 0.2, f"{label_prefix}{d+1}", ha='center', va='top', fontsize=10, fontweight='bold', color='black')
+                elif t_idx == len(timesteps) - 1:
+                    ax.text(d * slot_height + slot_height / 2.0, t_idx + 0.2, f"{label_prefix}{d+1}", ha='center', va='bottom', fontsize=10, fontweight='bold', color='black')
 
     # 5. Draw alluvial flows (ribbons) between adjacent timesteps
     num_steps_between = 30
@@ -359,27 +376,47 @@ def plot_alluvial_deciles(H_df, Delta_df, title, save_path, num_deciles=10, num_
                 y_start_top, y_start_bottom = y_starts[A][B]
                 y_end_top, y_end_bottom = y_ends[A][B]
                 
-                x1, x2 = t_idx, t_idx + 1
-                seg_x = np.linspace(x1, x2, num_steps_between)
-                
-                curve_top = y_start_top + (y_end_top - y_start_top) * smooth_t
-                curve_bottom = y_start_bottom + (y_end_bottom - y_start_bottom) * smooth_t
-                
-                ax.fill_between(seg_x, curve_bottom, curve_top, color=color, alpha=flow_alpha, zorder=2)
+                if orientation == 'horizontal':
+                    x1, x2 = t_idx, t_idx + 1
+                    seg_x = np.linspace(x1, x2, num_steps_between)
+                    
+                    curve_top = y_start_top + (y_end_top - y_start_top) * smooth_t
+                    curve_bottom = y_start_bottom + (y_end_bottom - y_start_bottom) * smooth_t
+                    
+                    ax.fill_between(seg_x, curve_bottom, curve_top, color=color, alpha=flow_alpha, zorder=2)
+                else:
+                    y1, y2 = t_idx, t_idx + 1
+                    seg_y = np.linspace(y1, y2, num_steps_between)
+                    
+                    curve_right = y_start_top + (y_end_top - y_start_top) * smooth_t
+                    curve_left = y_start_bottom + (y_end_bottom - y_start_bottom) * smooth_t
+                    
+                    ax.fill_betweenx(seg_y, curve_left, curve_right, color=color, alpha=flow_alpha, zorder=2)
 
     # Styling and Labels
     ax.set_title(title, fontsize=16, fontweight='bold', pad=15)
-    ax.set_xlabel('Time (Simulation Cycles)', fontsize=12, labelpad=10)
     
-    ylabel = 'Deciles of H (Health Problems)' if num_deciles == 10 else f'{num_deciles} Quantiles of H (Health Problems)'
-    ax.set_ylabel(ylabel, fontsize=12, labelpad=10)
+    decile_label = 'Deciles of Health Problems' if num_deciles == 10 else f'{num_deciles} Quantiles of Health Problems'
     
-    ax.set_xticks(range(len(timesteps)))
-    ax.set_xticklabels(timesteps)
-    ax.set_xlim(-0.5, len(timesteps) - 0.5)
-    ax.set_ylim(-0.02, 1.02)
-    
-    ax.set_yticks([])
+    if orientation == 'horizontal':
+        ax.set_xlabel('Time (Simulation Cycles)', fontsize=12, labelpad=10)
+        ax.set_ylabel(decile_label, fontsize=12, labelpad=10)
+        
+        ax.set_xticks(range(len(timesteps)))
+        ax.set_xticklabels(timesteps)
+        ax.set_xlim(-0.5, len(timesteps) - 0.5)
+        ax.set_ylim(-0.02, 1.02)
+        ax.set_yticks([])
+    else:
+        ax.set_ylabel('Time (Simulation Cycles)', fontsize=12, labelpad=10)
+        ax.set_xlabel(decile_label, fontsize=12, labelpad=10)
+        
+        ax.set_yticks(range(len(timesteps)))
+        ax.set_yticklabels(timesteps)
+        ax.set_ylim(-0.5, len(timesteps) - 0.5)
+        ax.set_xlim(-0.02, 1.02)
+        ax.set_xticks([])
+        
     ax.grid(False)
     
     if color_by_delta:
@@ -388,7 +425,7 @@ def plot_alluvial_deciles(H_df, Delta_df, title, save_path, num_deciles=10, num_
         sm = plt.cm.ScalarMappable(cmap=cmap, norm=plt.Normalize(vmin=min_delta, vmax=max_delta))
         sm.set_array([])
         cbar = fig.colorbar(sm, ax=ax, orientation='vertical', shrink=0.7, pad=0.03)
-        cbar.set_label('Disease Severity (Delta)', fontsize=12, labelpad=10)
+        cbar.set_label('Number of Diseases', fontsize=12, labelpad=10)
     
     # Ensure output dir exists
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
@@ -468,13 +505,16 @@ def main():
         end_time = SETTINGS.get('end_time', None)
         color_by_delta = SETTINGS.get('color_by_delta', False)
         
-        label_prefix = "Decile" if num_deciles == 10 else f"{num_deciles}-Quantile"
-        color_suffix = " (Colored by End Quantile Delta)" if color_by_delta else ""
-        title = f"Health {label_prefix} Alluvial Diagram{color_suffix} - {schedule.upper()}"
+        policy_labels = {"need": "Need Prioritisation", "risk": "Risk Stratification", "basal": "FCFS"}
+        label = policy_labels.get(schedule, schedule.upper())
+        label_prefix = "Deciles" if num_deciles == 10 else f"{num_deciles}-Quantiles"
+        color_suffix = " (Colored by Average Number of Diseases)" if color_by_delta else ""
+        title = f"{label} - Health {label_prefix} Alluvial Diagram{color_suffix}"
+        orientation = SETTINGS.get('orientation', 'horizontal')
         plot_alluvial_deciles(H_df, Delta_df, title, output_path, num_deciles=num_deciles,
                               num_observations=num_observations, varsigma=varsigma,
                               start_time=start_time, end_time=end_time,
-                              color_by_delta=color_by_delta)
+                              color_by_delta=color_by_delta, orientation=orientation)
 
     # 4. Compute Churning Rates and Plot Churning Rate Over Time
     churning_results = {}
