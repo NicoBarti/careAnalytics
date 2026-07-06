@@ -467,7 +467,12 @@ def main():
     # 5. Generate Alluvial Diagrams and Flow Metrics
     print("Generating alluvial and flow metric plots...")
     
-    num_deciles = experiment_settings.get("num_deciles", 10)
+    num_deciles = experiment_settings.get("num_deciles", 
+                                           experiment_settings.get("num_quantiles", 
+                                                                    experiment_settings.get("bins", 10)))
+    entropy_bins = experiment_settings.get("entropy_bins", 
+                                            experiment_settings.get("num_quantiles", 
+                                                                     experiment_settings.get("bins", 10)))
     num_observations = experiment_settings.get("num_observations", 11)
     
     # Select evenly spaced timesteps from available windows
@@ -511,7 +516,7 @@ def main():
         for rep_data in data_dict.values():
             H_df = rep_data.get('H')
             if H_df is not None and not H_df.empty:
-                rates = compute_churning(H_df, num_deciles, timesteps)
+                rates = compute_churning(H_df, entropy_bins, timesteps)
                 all_reps_rates.append(rates)
         if all_reps_rates:
             churning_results[schedule] = np.mean(all_reps_rates, axis=0)
@@ -558,7 +563,7 @@ def main():
         for rep_data in data_dict.values():
             H_df = rep_data.get('H')
             if H_df is not None and not H_df.empty:
-                entropies = compute_flow_entropy(H_df, num_deciles, timesteps)
+                entropies = compute_flow_entropy(H_df, entropy_bins, timesteps)
                 if entropies is not None:
                     all_reps_entropies.append(entropies)
         if all_reps_entropies:
@@ -585,8 +590,8 @@ def main():
                      markersize=8, alpha=0.9)
             
         # Reference lines for theoretical min/max entropy bounds
-        min_entropy = np.log2(num_deciles)
-        max_entropy = 2 * np.log2(num_deciles)
+        min_entropy = np.log2(entropy_bins)
+        max_entropy = 2 * np.log2(entropy_bins)
         plt.axhline(y=min_entropy, color='#cbd5e0', linestyle='--', linewidth=1.5, label='Min Theoretical Entropy (No Churn)')
         plt.axhline(y=max_entropy, color='#feb2b2', linestyle='--', linewidth=1.5, label='Max Theoretical Entropy (Full Shuffling)')
         
@@ -660,7 +665,7 @@ def main():
             H_df = rep_data.get('H')
             Disease_df = rep_data.get('Disease')
             if H_df is not None and not H_df.empty and Disease_df is not None and not Disease_df.empty:
-                disc_mi_vals = compute_discretized_mutual_information(H_df, Disease_df, timesteps, bins=10)
+                disc_mi_vals = compute_discretized_mutual_information(H_df, Disease_df, timesteps, bins=entropy_bins)
                 if disc_mi_vals is not None:
                     all_reps_disc_mis.append(disc_mi_vals)
         if all_reps_disc_mis:
@@ -685,7 +690,7 @@ def main():
                      marker=style_marker, linestyle=style_line, linewidth=2,
                      markersize=8, alpha=0.9)
             
-        plt.title(r"Discretized Mutual Information between Health Status (H) and Severity ($\delta$) over Time (10 Bins)", fontsize=14, fontweight='bold', pad=15)
+        plt.title(f"Discretized Mutual Information between Health Status (H) and Severity ($\\delta$) over Time ({entropy_bins} Bins)", fontsize=14, fontweight='bold', pad=15)
         plt.xlabel("Simulation Cycle", fontsize=12, labelpad=10)
         plt.ylabel("Discretized Mutual Information (Nats)", fontsize=12, labelpad=10)
         plt.xticks(timesteps)
@@ -707,7 +712,7 @@ def main():
             H_df = rep_data.get('H')
             Disease_df = rep_data.get('Disease')
             if H_df is not None and not H_df.empty and Disease_df is not None and not Disease_df.empty:
-                norm_mi_vals = compute_normalized_discretized_mutual_information(H_df, Disease_df, timesteps, bins=10)
+                norm_mi_vals = compute_normalized_discretized_mutual_information(H_df, Disease_df, timesteps, bins=entropy_bins)
                 if norm_mi_vals is not None:
                     all_reps_norm_mis.append(norm_mi_vals)
         if all_reps_norm_mis:
@@ -732,7 +737,7 @@ def main():
                      marker=style_marker, linestyle=style_line, linewidth=2,
                      markersize=8, alpha=0.9)
             
-        plt.title(r"Normalized Discretized Mutual Information between Health Status (H) and Severity ($\delta$) over Time (10 Bins)", fontsize=14, fontweight='bold', pad=15)
+        plt.title(f"Normalized Discretized Mutual Information between Health Status (H) and Severity ($\\delta$) over Time ({entropy_bins} Bins)", fontsize=14, fontweight='bold', pad=15)
         plt.xlabel("Simulation Cycle", fontsize=12, labelpad=10)
         plt.ylabel("Normalized Discretized Mutual Information", fontsize=12, labelpad=10)
         plt.xticks(timesteps)
@@ -754,7 +759,7 @@ def main():
             H_df = rep_data.get('H')
             Delta_df = rep_data.get('Delta')
             if H_df is not None and not H_df.empty and Delta_df is not None and not Delta_df.empty:
-                kl_vals = compute_kl_divergence(H_df, Delta_df, num_deciles, timesteps)
+                kl_vals = compute_kl_divergence(H_df, Delta_df, entropy_bins, timesteps)
                 if kl_vals is not None:
                     all_reps_kls.append(kl_vals)
         if all_reps_kls:
@@ -779,7 +784,7 @@ def main():
                      marker=style_marker, linestyle=style_line, linewidth=2,
                      markersize=8, alpha=0.9)
             
-        label_prefix = "Decile" if num_deciles == 10 else f"{num_deciles}-Quantile"
+        label_prefix = "Decile" if entropy_bins == 10 else f"{entropy_bins}-Quantile"
         plt.title(f"Relative Entropy (KL Divergence) of Severity across {label_prefix}s over Time", fontsize=14, fontweight='bold', pad=15)
         plt.xlabel("Simulation Cycle", fontsize=12, labelpad=10)
         plt.ylabel("KL Divergence from Time 0 (Nats)", fontsize=12, labelpad=10)
@@ -802,7 +807,7 @@ def main():
             H_df = rep_data.get('H')
             Delta_df = rep_data.get('Delta')
             if H_df is not None and not H_df.empty and Delta_df is not None and not Delta_df.empty:
-                entropy_vals = compute_severity_entropy(H_df, Delta_df, num_deciles, timesteps)
+                entropy_vals = compute_severity_entropy(H_df, Delta_df, entropy_bins, timesteps)
                 if entropy_vals is not None:
                     all_reps_entropies.append(entropy_vals)
         if all_reps_entropies:
@@ -827,16 +832,16 @@ def main():
                      marker=style_marker, linestyle=style_line, linewidth=2,
                      markersize=8, alpha=0.9)
             
-        label_prefix = "Decile" if num_deciles == 10 else f"{num_deciles}-Quantile"
+        label_prefix = "Decile" if entropy_bins == 10 else f"{entropy_bins}-Quantile"
         
-        # Max theoretical entropy is log(K)
-        max_entropy = np.log(num_deciles)
+        # Max theoretical discrete severity entropy is log(20) because of 20 severity bins
+        max_entropy = np.log(20)
         plt.axhline(y=max_entropy, color='#feb2b2', linestyle='--', linewidth=1.5, label='Max Theoretical Entropy (Uniform)')
         
         plt.title(f"Shannon Entropy (Self-Information) of Severity across {label_prefix}s over Time", fontsize=14, fontweight='bold', pad=15)
         plt.xlabel("Simulation Cycle", fontsize=12, labelpad=10)
         plt.ylabel("Shannon Entropy (Nats)", fontsize=12, labelpad=10)
-        plt.ylim(1.8, max_entropy + 0.1)
+        plt.ylim(0.0, max_entropy + 0.1)
         plt.xticks(timesteps)
         plt.legend(loc='best', frameon=True, facecolor='white', edgecolor='#e2e8f0', fontsize=10)
         plt.tight_layout()
@@ -845,7 +850,6 @@ def main():
         plt.savefig(entropy_plot_path, dpi=300, bbox_inches='tight')
         plt.close()
         print(f"Shannon Entropy (self-information) of Severity plot saved to {entropy_plot_path}")
-
     # 6. Setup Figures and Generate Complex Mosaic Plots
     print("Generating Complex Mosaic Plots...")
     from products.outcomesMatrix.complex_plotter import complexAxeDict, populate_axe

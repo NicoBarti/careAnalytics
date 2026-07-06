@@ -265,6 +265,9 @@ def compute_severity_entropy(H_df, Delta_df, num_deciles, timesteps):
     """
     Computes the Shannon Entropy (self-information) of the Severity (Delta) distribution
     across deciles/quantiles at each observation timestep.
+    For each decile, patient severities (Delta) are binned into 20 discrete bins
+    of width 0.5 (from 0 to 10). The Shannon entropy of this 20-bin distribution
+    is computed for each decile, and then averaged across all deciles at each timestep.
     """
     try:
         from scipy.stats import entropy
@@ -290,31 +293,31 @@ def compute_severity_entropy(H_df, Delta_df, num_deciles, timesteps):
         q_labels = pd.qcut(h_vals + noise_sorted, q=num_deciles, labels=False, duplicates='drop')
         deciles[t] = q_labels
         
-    def get_severity_distribution(t):
-        q_labels = deciles[t]
-        severity_sums = np.zeros(num_deciles)
-        for d in range(num_deciles):
-            mask = (q_labels == d)
-            if np.any(mask):
-                severity_sums[d] = np.nansum(deltas[mask])
-        
-        total_severity = np.sum(severity_sums)
-        if total_severity > 0:
-            return severity_sums / total_severity
-        else:
-            return np.ones(num_deciles) / num_deciles
-
-    entropy_vals = []
+    avg_entropies = []
+    severity_bins = np.linspace(0, 10, 21)  # 20 bins of width 0.5
+    
     for t in timesteps:
         if t not in deciles:
             continue
-        pk = get_severity_distribution(t)
-        # Compute Shannon entropy using scipy.stats.entropy
-        h = entropy(pk)
-        entropy_vals.append(h)
+        q_labels = deciles[t]
+        decile_entropies = []
+        for d in range(num_deciles):
+            mask = (q_labels == d)
+            if np.any(mask):
+                d_deltas = deltas[mask]
+                counts, _ = np.histogram(d_deltas, bins=severity_bins)
+                total = np.sum(counts)
+                if total > 0:
+                    pk = counts / total
+                    h_d = entropy(pk)
+                else:
+                    h_d = 0.0
+                decile_entropies.append(h_d)
+            else:
+                decile_entropies.append(0.0)
+        avg_entropies.append(np.mean(decile_entropies))
         
-    return entropy_vals
-
+    return avg_entropies
 
 def compute_sum_entropy_and_churning(H_df, num_deciles, timesteps):
     """
@@ -1100,15 +1103,15 @@ def main():
             
         label_prefix = "Decile" if num_deciles == 10 else f"{num_deciles}-Quantile"
         
-        # Max theoretical entropy is log(K)
-        max_entropy = np.log(num_deciles)
+        # Max theoretical discrete severity entropy is log(20) because of 20 severity bins
+        max_entropy = np.log(20)
         plt.axhline(y=max_entropy, color='#feb2b2', linestyle='--', linewidth=1.5, label='Max Theoretical Entropy (Uniform)')
         
         plt.title(f"Shannon Entropy (Self-Information) of Severity across {label_prefix}s over Time", 
                   fontsize=14, fontweight='bold', pad=15)
         plt.xlabel("Simulation Cycle", fontsize=12, labelpad=10)
         plt.ylabel("Shannon Entropy (Nats)", fontsize=12, labelpad=10)
-        plt.ylim(1.8, max_entropy + 0.1)
+        plt.ylim(0.0, max_entropy + 0.1)
         plt.xticks(timesteps)
         plt.legend(loc='best', frameon=True, facecolor='white', edgecolor='#e2e8f0', fontsize=10)
         plt.tight_layout()
@@ -1117,7 +1120,5 @@ def main():
         plt.savefig(entropy_plot_path, dpi=300, bbox_inches='tight')
         plt.close()
         print(f"Shannon Entropy (self-information) of Severity plot saved to {entropy_plot_path}")
-
-    
 if __name__ == "__main__":
     main()
