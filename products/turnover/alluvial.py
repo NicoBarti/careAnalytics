@@ -10,6 +10,8 @@ import numpy as np
 import seaborn as sns
 
 
+
+
 # --- LOCAL IMPLEMENTATION OF DATA GENERATION ---
 # This avoids importing products.jam.readingGroup which depends on scipy (not installed in exp)
 def generate_error_data(params, reps, state_vars, initial_seed, work_dir, engine_path, treatment):
@@ -38,7 +40,7 @@ SETTINGS = {
     'base_working_dir': '/Users/Nico/Desktop/simulationOutputs/tryAlluvial/',
     'treatments': ['need', 'risk', 'basal'],
     'reps': 1,
-    'state_variables': ['H','Delta'],
+    'state_variables': ['H', 'Delta', 'Disease'],
     'cmap': mpl.colormaps['plasma'],
     'OBS_PERIOD': 1,
     'csv_filename': 'dominance_lines.csv',
@@ -200,6 +202,120 @@ def compute_flow_entropy(H_df, num_deciles, timesteps):
     return entropy_values
 
 
+def compute_kl_divergence(H_df, Delta_df, num_deciles, timesteps):
+    """
+    Computes the KL divergence (Relative Entropy) of the Severity (Delta) distribution
+    across deciles/quantiles at each observation timestep relative to the distribution at time 0.
+    """
+    try:
+        from scipy.stats import entropy
+    except ImportError:
+        print("Warning: scipy is not installed. Skipping KL divergence calculation.")
+        return None
+    N = len(H_df)
+    deltas = Delta_df['0'].values
+    
+    # Pre-calculate deciles for all timesteps
+    deciles = {}
+    for t in timesteps:
+        col = str(t)
+        if col not in H_df.columns:
+            continue
+        h_vals = H_df[col].values
+        # Add deterministic tiny noise to make all values unique for qcut
+        noise = np.linspace(-1e-12, 1e-12, N)
+        sort_idx = np.argsort(h_vals)
+        noise_sorted = np.zeros_like(h_vals, dtype=float)
+        noise_sorted[sort_idx] = noise
+        
+        q_labels = pd.qcut(h_vals + noise_sorted, q=num_deciles, labels=False, duplicates='drop')
+        deciles[t] = q_labels
+        
+    def get_severity_distribution(t):
+        q_labels = deciles[t]
+        severity_sums = np.zeros(num_deciles)
+        for d in range(num_deciles):
+            mask = (q_labels == d)
+            if np.any(mask):
+                severity_sums[d] = np.nansum(deltas[mask])
+        
+        total_severity = np.sum(severity_sums)
+        if total_severity > 0:
+            return severity_sums / total_severity
+        else:
+            return np.ones(num_deciles) / num_deciles
+
+    # Compute reference distribution qk at time 0 (first timestep)
+    t0 = timesteps[0]
+    qk = get_severity_distribution(t0)
+    
+    kl_divs = []
+    for t in timesteps:
+        if t not in deciles:
+            continue
+        pk = get_severity_distribution(t)
+        # Compute KL divergence using scipy.stats.entropy
+        kl = entropy(pk, qk)
+        kl_divs.append(kl)
+        
+    return kl_divs
+
+
+def compute_severity_entropy(H_df, Delta_df, num_deciles, timesteps):
+    """
+    Computes the Shannon Entropy (self-information) of the Severity (Delta) distribution
+    across deciles/quantiles at each observation timestep.
+    """
+    try:
+        from scipy.stats import entropy
+    except ImportError:
+        print("Warning: scipy is not installed. Skipping Shannon Entropy of Severity calculation.")
+        return None
+    N = len(H_df)
+    deltas = Delta_df['0'].values
+    
+    # Pre-calculate deciles for all timesteps
+    deciles = {}
+    for t in timesteps:
+        col = str(t)
+        if col not in H_df.columns:
+            continue
+        h_vals = H_df[col].values
+        # Add deterministic tiny noise to make all values unique for qcut
+        noise = np.linspace(-1e-12, 1e-12, N)
+        sort_idx = np.argsort(h_vals)
+        noise_sorted = np.zeros_like(h_vals, dtype=float)
+        noise_sorted[sort_idx] = noise
+        
+        q_labels = pd.qcut(h_vals + noise_sorted, q=num_deciles, labels=False, duplicates='drop')
+        deciles[t] = q_labels
+        
+    def get_severity_distribution(t):
+        q_labels = deciles[t]
+        severity_sums = np.zeros(num_deciles)
+        for d in range(num_deciles):
+            mask = (q_labels == d)
+            if np.any(mask):
+                severity_sums[d] = np.nansum(deltas[mask])
+        
+        total_severity = np.sum(severity_sums)
+        if total_severity > 0:
+            return severity_sums / total_severity
+        else:
+            return np.ones(num_deciles) / num_deciles
+
+    entropy_vals = []
+    for t in timesteps:
+        if t not in deciles:
+            continue
+        pk = get_severity_distribution(t)
+        # Compute Shannon entropy using scipy.stats.entropy
+        h = entropy(pk)
+        entropy_vals.append(h)
+        
+    return entropy_vals
+
+
 def compute_sum_entropy_and_churning(H_df, num_deciles, timesteps):
     """
     Computes the sum of flow entropy and the sum of churning rates across all transition timesteps.
@@ -210,6 +326,129 @@ def compute_sum_entropy_and_churning(H_df, num_deciles, timesteps):
     churning_rates = compute_churning(H_df, num_deciles, timesteps)
     entropy_values = compute_flow_entropy(H_df, num_deciles, timesteps)
     return sum(entropy_values), sum(churning_rates)
+
+
+def compute_mutual_information(H_df, Disease_df, timesteps):
+    """
+    Computes the mutual information (in nats) between H and Disease (severity) at each selected timestep.
+    """
+    try:
+        from sklearn.feature_selection import mutual_info_regression
+    except ImportError:
+        print("Warning: scikit-learn is not installed. Skipping mutual information calculation.")
+        return None
+    mi_values = []
+    for t in timesteps:
+        col = str(t)
+        if col not in H_df.columns or col not in Disease_df.columns:
+            mi_values.append(0.0)
+            continue
+        
+        X = H_df[col].values
+        y = Disease_df[col].values
+        
+        # Filter out any NaNs
+        valid_indices = (~np.isnan(X)) & (~np.isnan(y))
+        X_clean = X[valid_indices].reshape(-1, 1)
+        y_clean = y[valid_indices]
+        
+        if len(X_clean) > 0:
+            mi = mutual_info_regression(X_clean, y_clean, random_state=42)[0]
+            mi_values.append(mi)
+        else:
+            mi_values.append(0.0)
+            
+    return mi_values
+
+
+def compute_discretized_mutual_information(H_df, Disease_df, timesteps, bins=10):
+    """
+    Computes the discretized mutual information using mutual_info_score in nats
+    after binning H and Disease (severity) into 10 bins.
+    """
+    try:
+        from sklearn.metrics import mutual_info_score
+    except ImportError:
+        print("Warning: scikit-learn is not installed. Skipping discretized mutual information calculation.")
+        return None
+    mi_values = []
+    for t in timesteps:
+        col = str(t)
+        if col not in H_df.columns or col not in Disease_df.columns:
+            mi_values.append(0.0)
+            continue
+        
+        X = H_df[col].values
+        y = Disease_df[col].values
+        
+        # Filter out any NaNs
+        valid_indices = (~np.isnan(X)) & (~np.isnan(y))
+        X_clean = X[valid_indices]
+        y_clean = y[valid_indices]
+        
+        if len(X_clean) > 0:
+            # Handle constant arrays where pd.cut fails due to min == max
+            if X_clean.max() == X_clean.min():
+                X_binned = np.zeros_like(X_clean, dtype=int)
+            else:
+                X_binned = pd.cut(X_clean, bins=bins, labels=False)
+                
+            if y_clean.max() == y_clean.min():
+                y_binned = np.zeros_like(y_clean, dtype=int)
+            else:
+                y_binned = pd.cut(y_clean, bins=bins, labels=False)
+                
+            mi = mutual_info_score(X_binned, y_binned)
+            mi_values.append(mi)
+        else:
+            mi_values.append(0.0)
+            
+    return mi_values
+
+
+def compute_normalized_discretized_mutual_information(H_df, Disease_df, timesteps, bins=10):
+    """
+    Computes the normalized discretized mutual information using normalized_mutual_info_score
+    after binning H and Disease (severity) into 10 bins.
+    """
+    try:
+        from sklearn.metrics import normalized_mutual_info_score
+    except ImportError:
+        print("Warning: scikit-learn is not installed. Skipping normalized discretized mutual information calculation.")
+        return None
+    mi_values = []
+    for t in timesteps:
+        col = str(t)
+        if col not in H_df.columns or col not in Disease_df.columns:
+            mi_values.append(0.0)
+            continue
+        
+        X = H_df[col].values
+        y = Disease_df[col].values
+        
+        # Filter out any NaNs
+        valid_indices = (~np.isnan(X)) & (~np.isnan(y))
+        X_clean = X[valid_indices]
+        y_clean = y[valid_indices]
+        
+        if len(X_clean) > 0:
+            # Handle constant arrays where pd.cut fails due to min == max
+            if X_clean.max() == X_clean.min():
+                X_binned = np.zeros_like(X_clean, dtype=int)
+            else:
+                X_binned = pd.cut(X_clean, bins=bins, labels=False)
+                
+            if y_clean.max() == y_clean.min():
+                y_binned = np.zeros_like(y_clean, dtype=int)
+            else:
+                y_binned = pd.cut(y_clean, bins=bins, labels=False)
+                
+            mi = normalized_mutual_info_score(X_binned, y_binned)
+            mi_values.append(mi)
+        else:
+            mi_values.append(0.0)
+            
+    return mi_values
 
 
 def plot_alluvial_deciles(H_df, Delta_df, title, save_path, num_deciles=10, num_observations=11, varsigma=300, start_time=None, end_time=None, color_by_delta=False, orientation='horizontal'):
@@ -631,6 +870,253 @@ def main():
         plt.savefig(entropy_plot_path, dpi=300, bbox_inches='tight')
         plt.close()
         print(f"Flow entropy plot saved to {entropy_plot_path}")
+
+    # 6. Compute KSG Mutual Information between H and Severity (Disease) and Plot Over Time
+    mi_results = {}
+    for schedule, raw_data in mech_data.items():
+        rep_data = list(raw_data.values())[0]
+        H_df = rep_data['H']
+        Disease_df = rep_data.get('Disease')
+        
+        if Disease_df is not None and not Disease_df.empty:
+            print(f"Computing KSG mutual information for schedule: {schedule}...")
+            mi_values = compute_mutual_information(H_df, Disease_df, timesteps)
+            if mi_values is not None:
+                mi_results[schedule] = mi_values
+        else:
+            print(f"Warning: 'Disease' data not available for schedule '{schedule}', skipping KSG mutual information calculation.")
+            
+    if mi_results:
+        plt.figure(figsize=(10, 6))
+        sns.set_theme(style="whitegrid")
+        
+        style_map = {
+            'need': {'color': '#E53E3E', 'marker': 'o', 'linestyle': '-', 'linewidth': 2, 'label': 'Need-based'},
+            'risk': {'color': '#DD6B20', 'marker': 's', 'linestyle': '--', 'linewidth': 2, 'label': 'Risk-based'},
+            'basal': {'color': '#4A5568', 'marker': '^', 'linestyle': ':', 'linewidth': 2, 'label': 'Basal (FCFS)'}
+        }
+        
+        for schedule in ['basal', 'risk', 'need']:  # Order them logically in legend
+            if schedule not in mi_results:
+                continue
+            mi_values = mi_results[schedule]
+            style = style_map.get(schedule, {'color': '#718096', 'marker': 'x', 'linestyle': '-', 'linewidth': 2, 'label': schedule})
+            
+            x_vals = timesteps[:len(mi_values)]
+            plt.plot(x_vals, mi_values, label=style['label'], color=style['color'], 
+                     marker=style['marker'], linestyle=style['linestyle'], linewidth=style['linewidth'],
+                     markersize=8, alpha=0.9)
+            
+        plt.title(r"KSG Mutual Information between Health Status (H) and Severity ($\delta$) over Time", 
+                  fontsize=14, fontweight='bold', pad=15)
+        plt.xlabel("Simulation Cycle", fontsize=12, labelpad=10)
+        plt.ylabel("KSG Mutual Information (Nats)", fontsize=12, labelpad=10)
+        plt.xticks(timesteps)
+        plt.legend(loc='best', frameon=True, facecolor='white', edgecolor='#e2e8f0', fontsize=10)
+        plt.tight_layout()
+        
+        mi_plot_path = os.path.join(SETTINGS['base_working_dir'], "ksg_mutual_information_H_severity.png")
+        plt.savefig(mi_plot_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        print(f"KSG mutual information plot saved to {mi_plot_path}")
+
+    # 7. Compute Discretized Mutual Information between H and Severity (Disease) and Plot Over Time
+    disc_mi_results = {}
+    for schedule, raw_data in mech_data.items():
+        rep_data = list(raw_data.values())[0]
+        H_df = rep_data['H']
+        Disease_df = rep_data.get('Disease')
+        
+        if Disease_df is not None and not Disease_df.empty:
+            print(f"Computing discretized mutual information for schedule: {schedule}...")
+            disc_mi_values = compute_discretized_mutual_information(H_df, Disease_df, timesteps, bins=10)
+            if disc_mi_values is not None:
+                disc_mi_results[schedule] = disc_mi_values
+        else:
+            print(f"Warning: 'Disease' data not available for schedule '{schedule}', skipping discretized mutual information calculation.")
+            
+    if disc_mi_results:
+        plt.figure(figsize=(10, 6))
+        sns.set_theme(style="whitegrid")
+        
+        style_map = {
+            'need': {'color': '#E53E3E', 'marker': 'o', 'linestyle': '-', 'linewidth': 2, 'label': 'Need-based'},
+            'risk': {'color': '#DD6B20', 'marker': 's', 'linestyle': '--', 'linewidth': 2, 'label': 'Risk-based'},
+            'basal': {'color': '#4A5568', 'marker': '^', 'linestyle': ':', 'linewidth': 2, 'label': 'Basal (FCFS)'}
+        }
+        
+        for schedule in ['basal', 'risk', 'need']:  # Order them logically in legend
+            if schedule not in disc_mi_results:
+                continue
+            disc_mi_values = disc_mi_results[schedule]
+            style = style_map.get(schedule, {'color': '#718096', 'marker': 'x', 'linestyle': '-', 'linewidth': 2, 'label': schedule})
+            
+            x_vals = timesteps[:len(disc_mi_values)]
+            plt.plot(x_vals, disc_mi_values, label=style['label'], color=style['color'], 
+                     marker=style['marker'], linestyle=style['linestyle'], linewidth=style['linewidth'],
+                     markersize=8, alpha=0.9)
+            
+        plt.title(r"Discretized Mutual Information between Health Status (H) and Severity ($\delta$) over Time (10 Bins)", 
+                  fontsize=14, fontweight='bold', pad=15)
+        plt.xlabel("Simulation Cycle", fontsize=12, labelpad=10)
+        plt.ylabel("Discretized Mutual Information (Nats)", fontsize=12, labelpad=10)
+        plt.xticks(timesteps)
+        plt.legend(loc='best', frameon=True, facecolor='white', edgecolor='#e2e8f0', fontsize=10)
+        plt.tight_layout()
+        
+        disc_mi_plot_path = os.path.join(SETTINGS['base_working_dir'], "discretized_mutual_information_H_severity.png")
+        plt.savefig(disc_mi_plot_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        print(f"Discretized mutual information plot saved to {disc_mi_plot_path}")
+
+    # 8. Compute Normalized Discretized Mutual Information between H and Severity (Disease) and Plot Over Time
+    norm_mi_results = {}
+    for schedule, raw_data in mech_data.items():
+        rep_data = list(raw_data.values())[0]
+        H_df = rep_data['H']
+        Disease_df = rep_data.get('Disease')
+        
+        if Disease_df is not None and not Disease_df.empty:
+            print(f"Computing normalized discretized mutual information for schedule: {schedule}...")
+            norm_mi_values = compute_normalized_discretized_mutual_information(H_df, Disease_df, timesteps, bins=10)
+            if norm_mi_values is not None:
+                norm_mi_results[schedule] = norm_mi_values
+        else:
+            print(f"Warning: 'Disease' data not available for schedule '{schedule}', skipping normalized discretized mutual information calculation.")
+            
+    if norm_mi_results:
+        plt.figure(figsize=(10, 6))
+        sns.set_theme(style="whitegrid")
+        
+        style_map = {
+            'need': {'color': '#E53E3E', 'marker': 'o', 'linestyle': '-', 'linewidth': 2, 'label': 'Need-based'},
+            'risk': {'color': '#DD6B20', 'marker': 's', 'linestyle': '--', 'linewidth': 2, 'label': 'Risk-based'},
+            'basal': {'color': '#4A5568', 'marker': '^', 'linestyle': ':', 'linewidth': 2, 'label': 'Basal (FCFS)'}
+        }
+        
+        for schedule in ['basal', 'risk', 'need']:  # Order them logically in legend
+            if schedule not in norm_mi_results:
+                continue
+            norm_mi_values = norm_mi_results[schedule]
+            style = style_map.get(schedule, {'color': '#718096', 'marker': 'x', 'linestyle': '-', 'linewidth': 2, 'label': schedule})
+            
+            x_vals = timesteps[:len(norm_mi_values)]
+            plt.plot(x_vals, norm_mi_values, label=style['label'], color=style['color'], 
+                     marker=style['marker'], linestyle=style['linestyle'], linewidth=style['linewidth'],
+                     markersize=8, alpha=0.9)
+            
+        plt.title(r"Normalized Discretized Mutual Information between Health Status (H) and Severity ($\delta$) over Time (10 Bins)", 
+                  fontsize=14, fontweight='bold', pad=15)
+        plt.xlabel("Simulation Cycle", fontsize=12, labelpad=10)
+        plt.ylabel("Normalized Discretized Mutual Information", fontsize=12, labelpad=10)
+        plt.xticks(timesteps)
+        plt.legend(loc='best', frameon=True, facecolor='white', edgecolor='#e2e8f0', fontsize=10)
+        plt.tight_layout()
+        
+        norm_mi_plot_path = os.path.join(SETTINGS['base_working_dir'], "normalized_discretized_mutual_information_H_severity.png")
+        plt.savefig(norm_mi_plot_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        print(f"Normalized discretized mutual information plot saved to {norm_mi_plot_path}")
+
+    # 9. Compute Relative Entropy (KL Divergence) of Severity (Delta) across Deciles and Plot Over Time
+    kl_results = {}
+    for schedule, raw_data in mech_data.items():
+        rep_data = list(raw_data.values())[0]
+        H_df = rep_data['H']
+        Delta_df = rep_data['Delta']
+        
+        print(f"Computing Relative Entropy (KL divergence) for schedule: {schedule}...")
+        kl_values = compute_kl_divergence(H_df, Delta_df, num_deciles, timesteps)
+        if kl_values is not None:
+            kl_results[schedule] = kl_values
+        
+    if kl_results:
+        plt.figure(figsize=(10, 6))
+        sns.set_theme(style="whitegrid")
+        
+        style_map = {
+            'need': {'color': '#E53E3E', 'marker': 'o', 'linestyle': '-', 'linewidth': 2, 'label': 'Need-based'},
+            'risk': {'color': '#DD6B20', 'marker': 's', 'linestyle': '--', 'linewidth': 2, 'label': 'Risk-based'},
+            'basal': {'color': '#4A5568', 'marker': '^', 'linestyle': ':', 'linewidth': 2, 'label': 'Basal (FCFS)'}
+        }
+        
+        for schedule in ['basal', 'risk', 'need']:  # Order them logically in legend
+            if schedule not in kl_results:
+                continue
+            kl_values = kl_results[schedule]
+            style = style_map.get(schedule, {'color': '#718096', 'marker': 'x', 'linestyle': '-', 'linewidth': 2, 'label': schedule})
+            
+            x_vals = timesteps[:len(kl_values)]
+            plt.plot(x_vals, kl_values, label=style['label'], color=style['color'], 
+                     marker=style['marker'], linestyle=style['linestyle'], linewidth=style['linewidth'],
+                     markersize=8, alpha=0.9)
+            
+        label_prefix = "Decile" if num_deciles == 10 else f"{num_deciles}-Quantile"
+        plt.title(f"Relative Entropy (KL Divergence) of Severity across {label_prefix}s over Time", 
+                  fontsize=14, fontweight='bold', pad=15)
+        plt.xlabel("Simulation Cycle", fontsize=12, labelpad=10)
+        plt.ylabel("KL Divergence from Time 0 (Nats)", fontsize=12, labelpad=10)
+        plt.xticks(timesteps)
+        plt.legend(loc='best', frameon=True, facecolor='white', edgecolor='#e2e8f0', fontsize=10)
+        plt.tight_layout()
+        
+        kl_plot_path = os.path.join(SETTINGS['base_working_dir'], "kl_divergence_severity.png")
+        plt.savefig(kl_plot_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        print(f"KL divergence plot saved to {kl_plot_path}")
+
+    # 10. Compute Shannon Entropy (self-information) of Severity (Delta) across Deciles and Plot Over Time
+    entropy_severity_results = {}
+    for schedule, raw_data in mech_data.items():
+        rep_data = list(raw_data.values())[0]
+        H_df = rep_data['H']
+        Delta_df = rep_data['Delta']
+        
+        print(f"Computing Shannon Entropy of Severity for schedule: {schedule}...")
+        entropy_values = compute_severity_entropy(H_df, Delta_df, num_deciles, timesteps)
+        if entropy_values is not None:
+            entropy_severity_results[schedule] = entropy_values
+        
+    if entropy_severity_results:
+        plt.figure(figsize=(10, 6))
+        sns.set_theme(style="whitegrid")
+        
+        style_map = {
+            'need': {'color': '#E53E3E', 'marker': 'o', 'linestyle': '-', 'linewidth': 2, 'label': 'Need-based'},
+            'risk': {'color': '#DD6B20', 'marker': 's', 'linestyle': '--', 'linewidth': 2, 'label': 'Risk-based'},
+            'basal': {'color': '#4A5568', 'marker': '^', 'linestyle': ':', 'linewidth': 2, 'label': 'Basal (FCFS)'}
+        }
+        
+        for schedule in ['basal', 'risk', 'need']:  # Order them logically in legend
+            if schedule not in entropy_severity_results:
+                continue
+            entropy_values = entropy_severity_results[schedule]
+            style = style_map.get(schedule, {'color': '#718096', 'marker': 'x', 'linestyle': '-', 'linewidth': 2, 'label': schedule})
+            
+            x_vals = timesteps[:len(entropy_values)]
+            plt.plot(x_vals, entropy_values, label=style['label'], color=style['color'], 
+                     marker=style['marker'], linestyle=style['linestyle'], linewidth=style['linewidth'],
+                     markersize=8, alpha=0.9)
+            
+        label_prefix = "Decile" if num_deciles == 10 else f"{num_deciles}-Quantile"
+        
+        # Max theoretical entropy is log(K)
+        max_entropy = np.log(num_deciles)
+        plt.axhline(y=max_entropy, color='#feb2b2', linestyle='--', linewidth=1.5, label='Max Theoretical Entropy (Uniform)')
+        
+        plt.title(f"Shannon Entropy (Self-Information) of Severity across {label_prefix}s over Time", 
+                  fontsize=14, fontweight='bold', pad=15)
+        plt.xlabel("Simulation Cycle", fontsize=12, labelpad=10)
+        plt.ylabel("Shannon Entropy (Nats)", fontsize=12, labelpad=10)
+        plt.ylim(1.8, max_entropy + 0.1)
+        plt.xticks(timesteps)
+        plt.legend(loc='best', frameon=True, facecolor='white', edgecolor='#e2e8f0', fontsize=10)
+        plt.tight_layout()
+        
+        entropy_plot_path = os.path.join(SETTINGS['base_working_dir'], "severity_entropy.png")
+        plt.savefig(entropy_plot_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        print(f"Shannon Entropy (self-information) of Severity plot saved to {entropy_plot_path}")
 
     
 if __name__ == "__main__":

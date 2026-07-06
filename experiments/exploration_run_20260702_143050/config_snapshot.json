@@ -1,0 +1,70 @@
+{
+    "global_settings": {
+        "engine_path": "/Users/Nico/Desktop/CareEngineAnalytics/engine/ABMServer7.jar",
+        "port": 8383,
+        "batch_size": 100,
+        "reps": 2,
+        "reproduce_line": true,
+        "state_variables": [
+            "H",
+            "N",
+            "T",
+            "SimpleB",
+            "Performance",
+            "MaxExp",
+            "SimpleE",
+            "Delta"
+        ]
+    },
+    "experiment_settings": {
+        "OBS_PERIOD": 5,
+        "initial_seed": 62920828945,
+        "treatments": [
+            "need",
+            "risk",
+            "basal"
+        ],
+        "lambda_to_run": 4.0,
+        "bound": 0.2857,
+        "varsigma": 300,
+        "fixed_kappa": 0.1,
+        "prioritization_granularity": 1,
+        "param_labels": {
+            "fixed_lambda": "Doctors' Learning Rate ($\\lambda$)",
+            "totalCapacity": "Total Appointments per Cycle (A)",
+            "fixed_tau": "Maximum Needs Treated per Appointment ($\\tau$)",
+            "fixed_psi": "Subjective Initiative ($\\psi$)",
+            "W": "Number of Doctors (W)",
+            "fixed_rho": "Positive Expectation Formation ($\\rho$)",
+            "fixed_eta": "Negative Expectation Formation ($\\eta$)",
+            "fixed_kappa": "Expectations Noise ($\\kappa$)",
+            "prioritization_granularity": "Prioritization Granularity ($g$)",
+            "varsigma": "Number of Cycles ($\\varsigma$)"
+        },
+        "policy_colors": {
+            "need": "#0d0887",
+            "risk": "#cc4778",
+            "basal": "#f0f921"
+        },
+        "policy_labels": {
+            "need": "Need-Prioritization",
+            "risk": "Risk-Stratification",
+            "basal": "FCFS"
+        }
+    },
+    "baseline_parameters": {
+        "fixed_lambda": 4.0,
+        "fixed_tau": 2,
+        "fixed_kappa": 0.1,
+        "fixed_rho": 1,
+        "fixed_eta": 1,
+        "fixed_capN": 10,
+        "fixed_capE": 10,
+        "fixed_psi": 0.5,
+        "N": 3500,
+        "W": 45,
+        "totalCapacity": 170,
+        "random_delta_min": 0,
+        "random_delta_max": 10
+    }
+}

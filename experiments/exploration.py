@@ -13,7 +13,13 @@ import seaborn as sns
 # Add project root to sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from MyClasses.client import Client
-from products.turnover.alluvial import plot_alluvial_deciles, compute_churning, compute_flow_entropy
+from products.turnover.alluvial import (plot_alluvial_deciles, compute_churning, 
+                                        compute_mutual_information, 
+                                        compute_discretized_mutual_information,
+                                        compute_normalized_discretized_mutual_information,
+                                        compute_kl_divergence,
+                                        compute_flow_entropy,
+                                        compute_severity_entropy)
 
 def load_config(config_path):
     with open(config_path, 'r') as f:
@@ -179,6 +185,11 @@ def main():
         selected_param, selected_val = grid_points[args.param_index]
         print(f"Selected parameter override from grid (index {args.param_index}): "
               f"{selected_param} = {selected_val}")
+        
+        # Update baseline parameters with the override and remove the sensitivity sweep grid
+        config["baseline_parameters"][selected_param] = selected_val
+        if "sensitivity_configs" in config["experiment_settings"]:
+            config["experiment_settings"].pop("sensitivity_configs", None)
 
     # Resolve output directory 
     output_root = args.output_root
@@ -347,11 +358,497 @@ def main():
                 row_indices = sorted(row_indices)
                 break
 
-    # 3. Setup Figures and Generate Complex Mosaic Plots
+    # 3. Setup Figures for Standard Plots
+    print("Setting up figures for standard plots...")
+    fig_delivery, ax_delivery = plt.subplots(figsize=(12, 7))
+    fig_health, ax_health = plt.subplots(figsize=(12, 7))
+    fig_seeking, ax_seeking = plt.subplots(figsize=(12, 7))
+    fig_exp_corr, ax_exp_corr = plt.subplots(nrows=1, ncols=2, figsize=(18, 7))
+    fig_diagon, ax_diagon = plt.subplots(nrows=1, ncols=2, figsize=(18, 7))
+    fig_focus, ax_focus = plt.subplots(figsize=(18, 7))
+    
+    fig_mosaic = plt.figure(layout="constrained", figsize=(12, 7))
+    axd_mosaic = fig_mosaic.subplot_mosaic(
+        """
+        LB
+        LR
+        LN
+        """,
+        gridspec_kw=dict(width_ratios=[1.3, 1])
+    )
+    
+    policy_colors = experiment_settings.get("policy_colors", {})
+    policy_labels = experiment_settings.get("policy_labels", {})
+    bound = experiment_settings.get("bound", 0.2857)
+
+    # 4. Generate Plot Series
+    print("Generating standard plots...")
+    for schedule in schedules:
+        if schedule not in mech_data or not mech_data[schedule]:
+            continue
+        
+        color = policy_colors.get(schedule, "black")
+        label = policy_labels.get(schedule, schedule.upper())
+        data_dict = mech_data[schedule]
+
+        # 1. Delivery of Treatments
+        try:
+            treat_data = np.array([d['stepPerformance'].values.flatten() for d in data_dict.values() if not d['stepPerformance'].empty])
+            treat_data[treat_data == 0] = np.nan
+        except Exception:
+            treat_data = np.array([np.nanmean(np.where(d['T'].values > 0, d['T'].values, np.nan), axis=0) for d in data_dict.values()])
+
+        plot_temporal_series(ax=ax_delivery, data=treat_data, label=label, color=color, linestyle='solid',
+                             title='Delivery of Treatments', y_label='Performance per Cycle')
+        ax_delivery.grid(True, linestyle=':', alpha=0.6)
+
+        # 2. Progression of Diseases
+        health_data = np.array([d['H'].values for d in data_dict.values()]).mean(axis=1)
+        plot_temporal_series(ax=ax_health, data=health_data, label=label, color=color, linestyle='solid',
+                             title='Progression of Diseases', y_label='Average Health Problems per Patient')
+        
+        plot_temporal_series(ax=axd_mosaic['L'], data=health_data, label=label, color=color, linestyle='solid',
+                             title='Progression of Diseases', y_label='Average Health Problems per Patient')
+
+        # 3. Care Seeking Behaviour
+        seeking_data = care_seeking(data_dict)
+        plot_temporal_series(ax=ax_seeking, data=seeking_data, label=label, color=color, linestyle='solid',
+                             title='Care Seeking Behaviour', y_label='Proportion of the Population Seeking Care')
+
+        # 4. Expectations
+        exp_lower = get_average_Exp_bound(data_dict, bound, lower=True)
+        plot_temporal_series(ax=ax_exp_corr[1], data=exp_lower, label=f'{label}, mean expectations (lower need)', color=color,
+                             linestyle='solid', title='Expectations in Lower Needs Patients',
+                             y_label=f'Mean Expectations in the lower {bound:.2f} Needs Quantile')
+        
+        corrMaxExp = corrExp_Health(data_dict, expectationType='MaxExp')
+        plot_temporal_series(ax=ax_exp_corr[0], data=np.array(corrMaxExp), label=f'{label}, correlation between expectations and needs', color=color, linestyle='solid',
+                             title='Correlation between Expectations and Needs at the Population Level', y_label='Pearson correlation of Needs and Expectations')
+
+        # 5. Focus Needs
+        AllNeed = np.array([d['N'].values for d in data_dict.values()])
+        AllTreat = np.array([d['T'].values for d in data_dict.values()])
+        TreatmentNeed = np.where(AllTreat > 0, AllNeed, np.nan)
+        q5, q25, q50, q75, q95 = np.nanquantile(TreatmentNeed, q=[0.05, 0.25, 0.5, 0.75, 0.95], axis=1)
+        xs = np.arange(q25.shape[1])
+        alpha = 0.4 if schedule == 'need' else 0.2
+        ax_focus.fill_between(xs, q25.mean(0), q75.mean(0), color=color, alpha=alpha, label=f'{label}, Needs Median and IQR')
+        ax_focus.plot(xs, q25.mean(0), color=color, linestyle='--', linewidth=1, alpha=0.8)
+        ax_focus.plot(xs, q75.mean(0), color=color, linestyle='--', linewidth=1, alpha=0.8)
+        ax_focus.plot(xs, q50.mean(0), color=color, linestyle='solid', linewidth=1.5, alpha=1)
+        ax_focus.plot(xs, q5.mean(0), color=color, linestyle='dotted', linewidth=1, alpha=0.8)
+        ax_focus.plot(xs, q95.mean(0), color=color, linestyle='dotted', linewidth=1, alpha=0.8)
+
+        # 6. Jaccard next cycle similarity
+        seekJac = np.array(compute_jaccard(data_dict, 'SimpleB'))
+        treatJac = np.array(compute_jaccard(data_dict, 'T'))
+        
+        # diagonal offset 1 average across reps
+        seekJacDiag = np.array([m.diagonal(offset=1) for m in seekJac])
+        treatJacDiag = np.array([m.diagonal(offset=1) for m in treatJac])
+        
+        plot_temporal_series(ax=ax_diagon[0], data=seekJacDiag, color=color, label=f'{label}, next cycle similarity', linestyle='solid', title='Care Seeking Similarity', y_label=r'\% of same patients seeking care in previous cycle')
+        plot_temporal_series(ax=ax_diagon[1], data=treatJacDiag, color=color, label=f'{label}, next cycle similarity', linestyle='solid', title='Treatment Similarity', y_label=r'\% of same patients receiving treatment in previous cycle')
+
+        # 7. Histograms on right of mosaic (end of simulation)
+        ax_idx = 'B' if schedule == 'basal' else ('R' if schedule == 'risk' else 'N')
+        plot_histogram(ax=axd_mosaic[ax_idx], error_data=data_dict, title=f'{label} (End)', color=color, xlab='Disease Progression', hist_label=label)
+
+    # Save original figures
+    print(f"Saving standard exploration plots to: {run_dir}")
+    fig_delivery.savefig(os.path.join(run_dir, 'delivery.png'), dpi=300)
+    fig_health.savefig(os.path.join(run_dir, 'health.png'), dpi=300)
+    fig_seeking.savefig(os.path.join(run_dir, 'seeking.png'), dpi=300)
+    fig_exp_corr.savefig(os.path.join(run_dir, 'expectations_correlations.png'), dpi=300)
+    fig_diagon.savefig(os.path.join(run_dir, 'diagonals.png'), dpi=300)
+    fig_focus.savefig(os.path.join(run_dir, 'focus.png'), dpi=300)
+    fig_mosaic.savefig(os.path.join(run_dir, 'mosaic.png'), dpi=300)
+    
+    # 5. Generate Alluvial Diagrams and Flow Metrics
+    print("Generating alluvial and flow metric plots...")
+    
+    num_deciles = experiment_settings.get("num_deciles", 10)
+    num_observations = experiment_settings.get("num_observations", 11)
+    
+    # Select evenly spaced timesteps from available windows
+    obs_indices = np.linspace(0, len(windows) - 1, min(num_observations, len(windows)))
+    timesteps = [int(windows[int(round(idx))]) for idx in obs_indices]
+    
+    # 5.1 Alluvial Diagrams per policy
+    for schedule, data_dict in mech_data.items():
+        if not data_dict:
+            continue
+        rep_data = list(data_dict.values())[0]
+        H_df = rep_data.get('H')
+        Delta_df = rep_data.get('Delta')
+        
+        if H_df is not None and not H_df.empty:
+            output_path = os.path.join(run_dir, f"alluvial_{schedule}.png")
+            label = policy_labels.get(schedule, schedule.upper())
+            title = f"Health Deciles Alluvial Diagram (Colored by End Quantile Delta) - {label}"
+            
+            color_by_delta = Delta_df is not None and not Delta_df.empty
+            
+            plot_alluvial_deciles(
+                H_df=H_df,
+                Delta_df=Delta_df if color_by_delta else pd.DataFrame(0, index=H_df.index, columns=['0']),
+                title=title,
+                save_path=output_path,
+                num_deciles=num_deciles,
+                num_observations=len(timesteps),
+                varsigma=experiment_settings.get('varsigma', 300),
+                start_time=timesteps[0],
+                end_time=timesteps[-1],
+                color_by_delta=color_by_delta
+            )
+
+    # 5.2 Patient Churning Rates over time
+    churning_results = {}
+    for schedule, data_dict in mech_data.items():
+        if not data_dict:
+            continue
+        all_reps_rates = []
+        for rep_data in data_dict.values():
+            H_df = rep_data.get('H')
+            if H_df is not None and not H_df.empty:
+                rates = compute_churning(H_df, num_deciles, timesteps)
+                all_reps_rates.append(rates)
+        if all_reps_rates:
+            churning_results[schedule] = np.mean(all_reps_rates, axis=0)
+            
+    if churning_results:
+        transition_times = timesteps[1:]
+        plt.figure(figsize=(10, 6))
+        sns.set_theme(style="whitegrid")
+        
+        for schedule in ['basal', 'risk', 'need']:
+            if schedule not in churning_results:
+                continue
+            rates = churning_results[schedule]
+            color = policy_colors.get(schedule, "black")
+            label = policy_labels.get(schedule, schedule.upper())
+            
+            style_marker = 'o' if schedule == 'need' else ('s' if schedule == 'risk' else '^')
+            style_line = '-' if schedule == 'need' else ('--' if schedule == 'risk' else ':')
+            
+            x_vals = transition_times[:len(rates)]
+            plt.plot(x_vals, rates, label=label, color=color, 
+                     marker=style_marker, linestyle=style_line, linewidth=2,
+                     markersize=8, alpha=0.9)
+            
+        plt.title("Patient Health Deciles Churning Rate Over Time", fontsize=14, fontweight='bold', pad=15)
+        plt.xlabel("Simulation Cycle (Transition End Time)", fontsize=12, labelpad=10)
+        plt.ylabel("Churning Rate (Proportion Changing Quantile)", fontsize=12, labelpad=10)
+        plt.ylim(-0.05, 1.05)
+        plt.xticks(transition_times)
+        plt.legend(loc='best', frameon=True, facecolor='white', edgecolor='#e2e8f0', fontsize=11)
+        plt.tight_layout()
+        
+        churn_plot_path = os.path.join(run_dir, "churning_rate.png")
+        plt.savefig(churn_plot_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        print(f"Churning rate plot saved to {churn_plot_path}")
+
+    # 5.2.1 Shannon Entropy of Transition Flows over time
+    flow_entropy_results = {}
+    for schedule, data_dict in mech_data.items():
+        if not data_dict:
+            continue
+        all_reps_entropies = []
+        for rep_data in data_dict.values():
+            H_df = rep_data.get('H')
+            if H_df is not None and not H_df.empty:
+                entropies = compute_flow_entropy(H_df, num_deciles, timesteps)
+                if entropies is not None:
+                    all_reps_entropies.append(entropies)
+        if all_reps_entropies:
+            flow_entropy_results[schedule] = np.mean(all_reps_entropies, axis=0)
+            
+    if flow_entropy_results:
+        transition_times = timesteps[1:]
+        plt.figure(figsize=(10, 6))
+        sns.set_theme(style="whitegrid")
+        
+        for schedule in ['basal', 'risk', 'need']:
+            if schedule not in flow_entropy_results:
+                continue
+            entropies = flow_entropy_results[schedule]
+            color = policy_colors.get(schedule, "black")
+            label = policy_labels.get(schedule, schedule.upper())
+            
+            style_marker = 'o' if schedule == 'need' else ('s' if schedule == 'risk' else '^')
+            style_line = '-' if schedule == 'need' else ('--' if schedule == 'risk' else ':')
+            
+            x_vals = transition_times[:len(entropies)]
+            plt.plot(x_vals, entropies, label=label, color=color, 
+                     marker=style_marker, linestyle=style_line, linewidth=2,
+                     markersize=8, alpha=0.9)
+            
+        # Reference lines for theoretical min/max entropy bounds
+        min_entropy = np.log2(num_deciles)
+        max_entropy = 2 * np.log2(num_deciles)
+        plt.axhline(y=min_entropy, color='#cbd5e0', linestyle='--', linewidth=1.5, label='Min Theoretical Entropy (No Churn)')
+        plt.axhline(y=max_entropy, color='#feb2b2', linestyle='--', linewidth=1.5, label='Max Theoretical Entropy (Full Shuffling)')
+        
+        plt.title("Transition Flow Shannon Entropy Over Time", fontsize=14, fontweight='bold', pad=15)
+        plt.xlabel("Simulation Cycle (Transition End Time)", fontsize=12, labelpad=10)
+        plt.ylabel("Shannon Entropy (Bits)", fontsize=12, labelpad=10)
+        plt.ylim(min_entropy - 0.2, max_entropy + 0.2)
+        plt.xticks(transition_times)
+        plt.legend(loc='best', frameon=True, facecolor='white', edgecolor='#e2e8f0', fontsize=11)
+        plt.tight_layout()
+        
+        flow_entropy_plot_path = os.path.join(run_dir, "flow_entropy.png")
+        plt.savefig(flow_entropy_plot_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        print(f"Flow entropy plot saved to {flow_entropy_plot_path}")
+
+    # 5.3 KSG Mutual Information between H and Severity (Disease) over time
+    mi_results = {}
+    for schedule, data_dict in mech_data.items():
+        if not data_dict:
+            continue
+        all_reps_mis = []
+        for rep_data in data_dict.values():
+            H_df = rep_data.get('H')
+            Disease_df = rep_data.get('Disease')
+            if H_df is not None and not H_df.empty and Disease_df is not None and not Disease_df.empty:
+                mi_vals = compute_mutual_information(H_df, Disease_df, timesteps)
+                if mi_vals is not None:
+                    all_reps_mis.append(mi_vals)
+        if all_reps_mis:
+            mi_results[schedule] = np.mean(all_reps_mis, axis=0)
+            
+    if mi_results:
+        plt.figure(figsize=(10, 6))
+        sns.set_theme(style="whitegrid")
+        
+        for schedule in ['basal', 'risk', 'need']:
+            if schedule not in mi_results:
+                continue
+            mi_vals = mi_results[schedule]
+            color = policy_colors.get(schedule, "black")
+            label = policy_labels.get(schedule, schedule.upper())
+            
+            style_marker = 'o' if schedule == 'need' else ('s' if schedule == 'risk' else '^')
+            style_line = '-' if schedule == 'need' else ('--' if schedule == 'risk' else ':')
+            
+            x_vals = timesteps[:len(mi_vals)]
+            plt.plot(x_vals, mi_vals, label=label, color=color, 
+                     marker=style_marker, linestyle=style_line, linewidth=2,
+                     markersize=8, alpha=0.9)
+            
+        plt.title(r"KSG Mutual Information between Health Status (H) and Severity ($\delta$) over Time", fontsize=14, fontweight='bold', pad=15)
+        plt.xlabel("Simulation Cycle", fontsize=12, labelpad=10)
+        plt.ylabel("KSG Mutual Information (Nats)", fontsize=12, labelpad=10)
+        plt.xticks(timesteps)
+        plt.legend(loc='best', frameon=True, facecolor='white', edgecolor='#e2e8f0', fontsize=10)
+        plt.tight_layout()
+        
+        mi_plot_path = os.path.join(run_dir, "ksg_mutual_information_H_severity.png")
+        plt.savefig(mi_plot_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        print(f"KSG mutual information plot saved to {mi_plot_path}")
+
+    # 5.4 Discretized Mutual Information between H and Severity (Disease) over time
+    disc_mi_results = {}
+    for schedule, data_dict in mech_data.items():
+        if not data_dict:
+            continue
+        all_reps_disc_mis = []
+        for rep_data in data_dict.values():
+            H_df = rep_data.get('H')
+            Disease_df = rep_data.get('Disease')
+            if H_df is not None and not H_df.empty and Disease_df is not None and not Disease_df.empty:
+                disc_mi_vals = compute_discretized_mutual_information(H_df, Disease_df, timesteps, bins=10)
+                if disc_mi_vals is not None:
+                    all_reps_disc_mis.append(disc_mi_vals)
+        if all_reps_disc_mis:
+            disc_mi_results[schedule] = np.mean(all_reps_disc_mis, axis=0)
+            
+    if disc_mi_results:
+        plt.figure(figsize=(10, 6))
+        sns.set_theme(style="whitegrid")
+        
+        for schedule in ['basal', 'risk', 'need']:
+            if schedule not in disc_mi_results:
+                continue
+            disc_mi_vals = disc_mi_results[schedule]
+            color = policy_colors.get(schedule, "black")
+            label = policy_labels.get(schedule, schedule.upper())
+            
+            style_marker = 'o' if schedule == 'need' else ('s' if schedule == 'risk' else '^')
+            style_line = '-' if schedule == 'need' else ('--' if schedule == 'risk' else ':')
+            
+            x_vals = timesteps[:len(disc_mi_vals)]
+            plt.plot(x_vals, disc_mi_vals, label=label, color=color, 
+                     marker=style_marker, linestyle=style_line, linewidth=2,
+                     markersize=8, alpha=0.9)
+            
+        plt.title(r"Discretized Mutual Information between Health Status (H) and Severity ($\delta$) over Time (10 Bins)", fontsize=14, fontweight='bold', pad=15)
+        plt.xlabel("Simulation Cycle", fontsize=12, labelpad=10)
+        plt.ylabel("Discretized Mutual Information (Nats)", fontsize=12, labelpad=10)
+        plt.xticks(timesteps)
+        plt.legend(loc='best', frameon=True, facecolor='white', edgecolor='#e2e8f0', fontsize=10)
+        plt.tight_layout()
+        
+        disc_mi_plot_path = os.path.join(run_dir, "discretized_mutual_information_H_severity.png")
+        plt.savefig(disc_mi_plot_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        print(f"Discretized mutual information plot saved to {disc_mi_plot_path}")
+
+    # 5.5 Normalized Discretized Mutual Information between H and Severity (Disease) over time
+    norm_mi_results = {}
+    for schedule, data_dict in mech_data.items():
+        if not data_dict:
+            continue
+        all_reps_norm_mis = []
+        for rep_data in data_dict.values():
+            H_df = rep_data.get('H')
+            Disease_df = rep_data.get('Disease')
+            if H_df is not None and not H_df.empty and Disease_df is not None and not Disease_df.empty:
+                norm_mi_vals = compute_normalized_discretized_mutual_information(H_df, Disease_df, timesteps, bins=10)
+                if norm_mi_vals is not None:
+                    all_reps_norm_mis.append(norm_mi_vals)
+        if all_reps_norm_mis:
+            norm_mi_results[schedule] = np.mean(all_reps_norm_mis, axis=0)
+            
+    if norm_mi_results:
+        plt.figure(figsize=(10, 6))
+        sns.set_theme(style="whitegrid")
+        
+        for schedule in ['basal', 'risk', 'need']:
+            if schedule not in norm_mi_results:
+                continue
+            norm_mi_vals = norm_mi_results[schedule]
+            color = policy_colors.get(schedule, "black")
+            label = policy_labels.get(schedule, schedule.upper())
+            
+            style_marker = 'o' if schedule == 'need' else ('s' if schedule == 'risk' else '^')
+            style_line = '-' if schedule == 'need' else ('--' if schedule == 'risk' else ':')
+            
+            x_vals = timesteps[:len(norm_mi_vals)]
+            plt.plot(x_vals, norm_mi_vals, label=label, color=color, 
+                     marker=style_marker, linestyle=style_line, linewidth=2,
+                     markersize=8, alpha=0.9)
+            
+        plt.title(r"Normalized Discretized Mutual Information between Health Status (H) and Severity ($\delta$) over Time (10 Bins)", fontsize=14, fontweight='bold', pad=15)
+        plt.xlabel("Simulation Cycle", fontsize=12, labelpad=10)
+        plt.ylabel("Normalized Discretized Mutual Information", fontsize=12, labelpad=10)
+        plt.xticks(timesteps)
+        plt.legend(loc='best', frameon=True, facecolor='white', edgecolor='#e2e8f0', fontsize=10)
+        plt.tight_layout()
+        
+        norm_mi_plot_path = os.path.join(run_dir, "normalized_discretized_mutual_information_H_severity.png")
+        plt.savefig(norm_mi_plot_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        print(f"Normalized discretized mutual information plot saved to {norm_mi_plot_path}")
+
+    # 5.6 Relative Entropy (KL Divergence) of Severity (Delta) across Deciles over time
+    kl_results = {}
+    for schedule, data_dict in mech_data.items():
+        if not data_dict:
+            continue
+        all_reps_kls = []
+        for rep_data in data_dict.values():
+            H_df = rep_data.get('H')
+            Delta_df = rep_data.get('Delta')
+            if H_df is not None and not H_df.empty and Delta_df is not None and not Delta_df.empty:
+                kl_vals = compute_kl_divergence(H_df, Delta_df, num_deciles, timesteps)
+                if kl_vals is not None:
+                    all_reps_kls.append(kl_vals)
+        if all_reps_kls:
+            kl_results[schedule] = np.mean(all_reps_kls, axis=0)
+            
+    if kl_results:
+        plt.figure(figsize=(10, 6))
+        sns.set_theme(style="whitegrid")
+        
+        for schedule in ['basal', 'risk', 'need']:
+            if schedule not in kl_results:
+                continue
+            kl_vals = kl_results[schedule]
+            color = policy_colors.get(schedule, "black")
+            label = policy_labels.get(schedule, schedule.upper())
+            
+            style_marker = 'o' if schedule == 'need' else ('s' if schedule == 'risk' else '^')
+            style_line = '-' if schedule == 'need' else ('--' if schedule == 'risk' else ':')
+            
+            x_vals = timesteps[:len(kl_vals)]
+            plt.plot(x_vals, kl_vals, label=label, color=color, 
+                     marker=style_marker, linestyle=style_line, linewidth=2,
+                     markersize=8, alpha=0.9)
+            
+        label_prefix = "Decile" if num_deciles == 10 else f"{num_deciles}-Quantile"
+        plt.title(f"Relative Entropy (KL Divergence) of Severity across {label_prefix}s over Time", fontsize=14, fontweight='bold', pad=15)
+        plt.xlabel("Simulation Cycle", fontsize=12, labelpad=10)
+        plt.ylabel("KL Divergence from Time 0 (Nats)", fontsize=12, labelpad=10)
+        plt.xticks(timesteps)
+        plt.legend(loc='best', frameon=True, facecolor='white', edgecolor='#e2e8f0', fontsize=10)
+        plt.tight_layout()
+        
+        kl_plot_path = os.path.join(run_dir, "kl_divergence_severity.png")
+        plt.savefig(kl_plot_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        print(f"KL divergence plot saved to {kl_plot_path}")
+
+    # 5.7 Shannon Entropy (self-information) of Severity (Delta) across Deciles over time
+    entropy_severity_results = {}
+    for schedule, data_dict in mech_data.items():
+        if not data_dict:
+            continue
+        all_reps_entropies = []
+        for rep_data in data_dict.values():
+            H_df = rep_data.get('H')
+            Delta_df = rep_data.get('Delta')
+            if H_df is not None and not H_df.empty and Delta_df is not None and not Delta_df.empty:
+                entropy_vals = compute_severity_entropy(H_df, Delta_df, num_deciles, timesteps)
+                if entropy_vals is not None:
+                    all_reps_entropies.append(entropy_vals)
+        if all_reps_entropies:
+            entropy_severity_results[schedule] = np.mean(all_reps_entropies, axis=0)
+            
+    if entropy_severity_results:
+        plt.figure(figsize=(10, 6))
+        sns.set_theme(style="whitegrid")
+        
+        for schedule in ['basal', 'risk', 'need']:
+            if schedule not in entropy_severity_results:
+                continue
+            entropy_vals = entropy_severity_results[schedule]
+            color = policy_colors.get(schedule, "black")
+            label = policy_labels.get(schedule, schedule.upper())
+            
+            style_marker = 'o' if schedule == 'need' else ('s' if schedule == 'risk' else '^')
+            style_line = '-' if schedule == 'need' else ('--' if schedule == 'risk' else ':')
+            
+            x_vals = timesteps[:len(entropy_vals)]
+            plt.plot(x_vals, entropy_vals, label=label, color=color, 
+                     marker=style_marker, linestyle=style_line, linewidth=2,
+                     markersize=8, alpha=0.9)
+            
+        label_prefix = "Decile" if num_deciles == 10 else f"{num_deciles}-Quantile"
+        
+        # Max theoretical entropy is log(K)
+        max_entropy = np.log(num_deciles)
+        plt.axhline(y=max_entropy, color='#feb2b2', linestyle='--', linewidth=1.5, label='Max Theoretical Entropy (Uniform)')
+        
+        plt.title(f"Shannon Entropy (Self-Information) of Severity across {label_prefix}s over Time", fontsize=14, fontweight='bold', pad=15)
+        plt.xlabel("Simulation Cycle", fontsize=12, labelpad=10)
+        plt.ylabel("Shannon Entropy (Nats)", fontsize=12, labelpad=10)
+        plt.ylim(1.8, max_entropy + 0.1)
+        plt.xticks(timesteps)
+        plt.legend(loc='best', frameon=True, facecolor='white', edgecolor='#e2e8f0', fontsize=10)
+        plt.tight_layout()
+        
+        entropy_plot_path = os.path.join(run_dir, "severity_entropy.png")
+        plt.savefig(entropy_plot_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        print(f"Shannon Entropy (self-information) of Severity plot saved to {entropy_plot_path}")
+
+    # 6. Setup Figures and Generate Complex Mosaic Plots
     print("Generating Complex Mosaic Plots...")
     from products.outcomesMatrix.complex_plotter import complexAxeDict, populate_axe
-
-    policy_labels = experiment_settings.get("policy_labels", {})
 
     for schedule in schedules:
         if schedule not in mech_data or not mech_data[schedule]:
@@ -399,7 +896,7 @@ def main():
         plt.close(fig)
         print(f"Complex Mosaic Plot for {label} saved to {mosaic_path}")
 
-    # 4. Cleanup
+    # 7. Cleanup
     plt.close('all')
     print("All plots saved successfully.")
     elapsed_time = time.time() - start_time
